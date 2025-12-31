@@ -1,0 +1,130 @@
+% =============================================================================
+% Appendix A: Architecture Variations
+% =============================================================================
+\chapter{Architecture Variations}
+\label{app:architecture-variations}
+
+This appendix surveys architectural choices not used in \TryLM but important to know.
+
+% -----------------------------------------------------------------------------
+\section{Multi-Query Attention (MQA)}
+% -----------------------------------------------------------------------------
+
+\textbf{Standard multi-head}: Each head has its own Q, K, V projections.
+
+\textbf{MQA}: All heads share K and V; only Q is per-head.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Approach} & \textbf{KV Cache Size} & \textbf{Quality} \\
+\midrule
+Multi-head (TryLM) & $h \times d_k$ & Best \\
+Multi-query (MQA) & $d_k$ & Slightly lower \\
+Grouped-query (GQA) & $g \times d_k$ & Middle ground \\
+\bottomrule
+\end{tabular}
+\caption{Attention variants comparison}
+\end{table}
+
+\textbf{Use case}: MQA/GQA reduce memory during inference, important for large-scale deployment.
+
+% -----------------------------------------------------------------------------
+\section{Flash Attention}
+% -----------------------------------------------------------------------------
+
+Standard attention requires $O(n^2)$ memory for the attention matrix. Flash Attention:
+\begin{itemize}
+    \item Computes attention in tiles
+    \item Never materializes full attention matrix
+    \item Achieves $O(n)$ memory
+    \item 2--4x faster for long sequences
+\end{itemize}
+
+\begin{lstlisting}[style=python]
+# PyTorch 2.0+ includes Flash Attention
+from torch.nn.functional import scaled_dot_product_attention
+
+# Automatically uses Flash Attention when available
+output = scaled_dot_product_attention(q, k, v, is_causal=True)
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\section{Mixture of Experts (MoE)}
+% -----------------------------------------------------------------------------
+
+MoE routes each token to a subset of ``expert'' FFN layers:
+
+\begin{itemize}
+    \item \textbf{More parameters}: 8--64 experts, only 1--2 active per token
+    \item \textbf{Similar compute}: Only active experts run
+    \item \textbf{Scaling}: Enables very large models (Mixtral, GPT-4)
+\end{itemize}
+
+\begin{lstlisting}[style=python]
+class MoELayer(nn.Module):
+    def __init__(self, n_experts=8, top_k=2):
+        self.experts = nn.ModuleList([FFN() for _ in range(n_experts)])
+        self.router = nn.Linear(d_model, n_experts)
+
+    def forward(self, x):
+        # Route each token to top-k experts
+        routing_weights = F.softmax(self.router(x), dim=-1)
+        top_k_weights, top_k_indices = routing_weights.topk(2)
+        # Compute weighted sum of expert outputs
+        ...
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\section{Alternative Position Encodings}
+% -----------------------------------------------------------------------------
+
+\textbf{ALiBi} (Attention with Linear Biases):
+\begin{itemize}
+    \item Adds linear bias based on distance: $\text{bias}_{ij} = -m \cdot |i - j|$
+    \item No learned parameters
+    \item Excellent length extrapolation
+\end{itemize}
+
+\textbf{Relative positional encodings}:
+\begin{itemize}
+    \item T5-style: Learned biases based on relative distance
+    \item Bucketed distances for efficiency
+\end{itemize}
+
+% -----------------------------------------------------------------------------
+\section{Encoder-Decoder Architectures}
+% -----------------------------------------------------------------------------
+
+\TryLM is decoder-only. Alternative architectures:
+
+\begin{description}
+    \item[BERT (Encoder-only)] Bidirectional attention, used for understanding tasks
+    \item[T5 (Encoder-Decoder)] Separate encoder and decoder, used for sequence-to-sequence
+    \item[GPT (Decoder-only)] Causal attention, used for generation (TryLM)
+\end{description}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    box/.style={rectangle, draw, rounded corners, minimum width=2cm, minimum height=1cm, fill=blue!10},
+]
+    % BERT
+    \node[box] (bert) at (0, 0) {Encoder};
+    \node[below=0.2cm of bert, font=\small] {BERT};
+    \node[above=0.2cm of bert, font=\footnotesize] {Bidirectional};
+
+    % T5
+    \node[box] (t5e) at (4, 0.5) {Encoder};
+    \node[box] (t5d) at (4, -0.5) {Decoder};
+    \draw[-{Stealth}] (t5e) -- (t5d);
+    \node[below=0.2cm of t5d, font=\small] {T5};
+
+    % GPT
+    \node[box] (gpt) at (8, 0) {Decoder};
+    \node[below=0.2cm of gpt, font=\small] {GPT/TryLM};
+    \node[above=0.2cm of gpt, font=\footnotesize] {Causal};
+\end{tikzpicture}
+\caption{Transformer architecture variants}
+\end{figure}

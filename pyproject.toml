@@ -1,0 +1,36 @@
+[project]
+name = "trylm"
+version = "0.1.0"
+description = "A small language model from scratch for learning"
+readme = "README.md"
+authors = [
+    { name = "Thilina Lakshan", email = "thilinalakshanmail@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "torch>=2.0.0",
+    "wandb>=0.16.0",
+    "tokenizers>=0.15.0",
+    "datasets>=2.16.0",
+    "safetensors>=0.4.0",
+    "tqdm>=4.66.0",
+    "pyyaml>=6.0.0",
+    "rich>=13.0.0",
+    "typer>=0.9.0",
+]
+
+[project.scripts]
+trylm = "trylm.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/trylm"]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.4.0",
+    "ipykernel>=6.27.0",
+]

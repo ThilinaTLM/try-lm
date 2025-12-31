@@ -1,0 +1,523 @@
+% =============================================================================
+% Chapter 8: The Complete GPT Model
+% =============================================================================
+\chapter{The Complete GPT Model}
+\label{ch:complete-gpt}
+
+\begin{objectives}
+    \item Understand the complete GPT architecture
+    \item Trace data flow from input to output
+    \item Learn how loss is computed for language modeling
+    \item Master weight initialization strategies
+    \item Calculate exact parameter counts
+\end{objectives}
+
+% -----------------------------------------------------------------------------
+\section{GPT Architecture Overview}
+% -----------------------------------------------------------------------------
+
+We've now covered all the components. Let's assemble them into the complete GPT model.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    box/.style={rectangle, draw, rounded corners, minimum width=4cm, minimum height=0.8cm, align=center, fill=blue!10},
+    block/.style={rectangle, draw, rounded corners, minimum width=4cm, minimum height=1.5cm, align=center, fill=orange!10},
+    arrow/.style={-{Stealth[length=2mm]}, thick},
+]
+    % Input
+    \node[box, fill=green!10] (input) at (0, 0) {Token IDs\\$[B, S]$};
+
+    % Embedding
+    \node[box, fill=purple!20] (emb) at (0, -1.5) {Token Embedding\\$[B, S] \to [B, S, 384]$};
+
+    % Dropout
+    \node[box, fill=gray!20] (drop) at (0, -2.8) {Dropout};
+
+    % Transformer blocks
+    \node[block] (blocks) at (0, -4.5) {Transformer Blocks $\times 6$\\Attention + FFN + Residuals};
+
+    % Final norm
+    \node[box, fill=yellow!20] (norm) at (0, -6.3) {RMSNorm (final)};
+
+    % LM Head
+    \node[box, fill=purple!20] (head) at (0, -7.6) {LM Head (weight-tied)\\$[B, S, 384] \to [B, S, 16384]$};
+
+    % Output
+    \node[box, fill=red!10] (output) at (0, -9.1) {Logits\\$[B, S, V]$};
+
+    % Arrows
+    \draw[arrow] (input) -- (emb);
+    \draw[arrow] (emb) -- (drop);
+    \draw[arrow] (drop) -- (blocks);
+    \draw[arrow] (blocks) -- (norm);
+    \draw[arrow] (norm) -- (head);
+    \draw[arrow] (head) -- (output);
+
+    % Dimension annotations
+    \node[right=0.5cm of input, font=\footnotesize, gray] {batch $\times$ seq\_len};
+    \node[right=0.5cm of emb, font=\footnotesize, gray] {+ d\_model dim};
+    \node[right=0.5cm of head, font=\footnotesize, gray] {project to vocab};
+\end{tikzpicture}
+\caption{Complete GPT architecture: from token IDs to logits}
+\label{fig:gpt-architecture}
+\end{figure}
+
+% -----------------------------------------------------------------------------
+\section{The GPT Class}
+% -----------------------------------------------------------------------------
+
+Here's the complete model implementation:
+
+\begin{lstlisting}[style=python, caption={GPT model from model.py}]
+class GPT(nn.Module):
+    def __init__(self, config: ModelConfig) -> None:
+        super().__init__()
+        self.config = config
+
+        # Token embeddings
+        self.token_embedding = nn.Embedding(
+            config.vocab_size,    # 16384
+            config.d_model,       # 384
+        )
+
+        # Dropout
+        self.dropout = nn.Dropout(config.dropout)
+
+        # Stack of transformer blocks
+        self.blocks = nn.ModuleList([
+            TransformerBlock(config)
+            for _ in range(config.n_layers)  # 6
+        ])
+
+        # Final layer norm
+        self.final_norm = RMSNorm(config.d_model)
+
+        # Output projection (language model head)
+        self.lm_head = nn.Linear(
+            config.d_model,       # 384
+            config.vocab_size,    # 16384
+            bias=False,
+        )
+
+        # Weight tying
+        self.lm_head.weight = self.token_embedding.weight
+
+        # Initialize weights
+        self.apply(self._init_weights)
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\section{The Forward Pass}
+% -----------------------------------------------------------------------------
+
+Let's trace exactly what happens when data flows through the model.
+
+\subsection{Input Processing}
+
+\begin{lstlisting}[style=python, caption={Forward pass from model.py}]
+def forward(
+    self,
+    input_ids: Tensor,              # [batch, seq_len]
+    attention_mask: Tensor | None = None,
+    labels: Tensor | None = None,
+) -> dict[str, Tensor]:
+
+    batch_size, seq_len = input_ids.shape
+
+    # Step 1: Token embedding
+    x = self.token_embedding(input_ids)  # [B, S, 384]
+    x = self.dropout(x)
+\end{lstlisting}
+
+\subsection{Transformer Blocks}
+
+\begin{lstlisting}[style=python]
+    # Step 2: Pass through all transformer blocks
+    for block in self.blocks:
+        x = block(x, attention_mask)
+    # Still [B, S, 384]
+\end{lstlisting}
+
+\subsection{Output Projection}
+
+\begin{lstlisting}[style=python]
+    # Step 3: Final normalization
+    x = self.final_norm(x)  # [B, S, 384]
+
+    # Step 4: Project to vocabulary
+    logits = self.lm_head(x)  # [B, S, 16384]
+\end{lstlisting}
+
+\subsection{Loss Computation}
+
+\begin{lstlisting}[style=python]
+    # Step 5: Compute loss if labels provided
+    if labels is not None:
+        # Shift logits and labels for next-token prediction
+        shift_logits = logits[..., :-1, :].contiguous()
+        shift_labels = labels[..., 1:].contiguous()
+
+        # Cross-entropy loss
+        loss = F.cross_entropy(
+            shift_logits.view(-1, self.config.vocab_size),
+            shift_labels.view(-1),
+            ignore_index=-100,  # Ignore padding
+        )
+        return {"logits": logits, "loss": loss}
+
+    return {"logits": logits}
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\section{Understanding the Loss Computation}
+% -----------------------------------------------------------------------------
+
+The loss computation involves a shift that aligns predictions with targets.
+
+\subsection{The Shift Operation}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    box/.style={rectangle, draw, minimum width=1.2cm, minimum height=0.6cm, font=\small},
+]
+    % Logits
+    \node at (-2, 1) {\textbf{Logits:}};
+    \foreach \x/\t in {0/0, 1.3/1, 2.6/2, 3.9/3, 5.2/4} {
+        \node[box, fill=blue!10] at (\x, 1) {$\ell_{\t}$};
+    }
+
+    % Shifted logits (for loss)
+    \node at (-2, 0) {\textbf{Shift logits:}};
+    \foreach \x/\t in {0/0, 1.3/1, 2.6/2, 3.9/3} {
+        \node[box, fill=green!20] at (\x, 0) {$\ell_{\t}$};
+    }
+    \node[box, fill=gray!30] at (5.2, 0) {---};
+
+    % Labels
+    \node at (-2, -1) {\textbf{Labels:}};
+    \foreach \x/\t in {0/0, 1.3/1, 2.6/2, 3.9/3, 5.2/4} {
+        \node[box, fill=orange!10] at (\x, -1) {$y_{\t}$};
+    }
+
+    % Shifted labels (for loss)
+    \node at (-2, -2) {\textbf{Shift labels:}};
+    \node[box, fill=gray!30] at (0, -2) {---};
+    \foreach \x/\t in {1.3/1, 2.6/2, 3.9/3, 5.2/4} {
+        \node[box, fill=orange!20] at (\x, -2) {$y_{\t}$};
+    }
+
+    % Alignment arrows
+    \foreach \x in {0, 1.3, 2.6, 3.9} {
+        \draw[-{Stealth}, gray] (\x, -0.35) -- (\x + 1.3, -1.65);
+    }
+
+    % Annotation
+    \node[font=\footnotesize, gray] at (2.6, -3) {Logit at position $i$ predicts label at position $i+1$};
+\end{tikzpicture}
+\caption{Shift alignment: each logit predicts the next token}
+\label{fig:loss-shift}
+\end{figure}
+
+\subsection{Why Shift?}
+
+Remember the language modeling objective: predict the \textit{next} token. So:
+\begin{itemize}
+    \item Logits at position 0 should predict token at position 1
+    \item Logits at position $n-2$ should predict token at position $n-1$
+    \item Logits at position $n-1$ have nothing to predict (discarded)
+\end{itemize}
+
+\subsection{Cross-Entropy Loss}
+
+The cross-entropy loss measures how well predictions match targets:
+
+\begin{equation}
+\mathcal{L} = -\frac{1}{N} \sum_{i=1}^{N} \log p(y_i | x_{<i})
+\end{equation}
+
+where $p(y_i | x_{<i})$ is the predicted probability of the correct next token.
+
+\begin{keypoint}
+\textbf{Perplexity} is $\exp(\mathcal{L})$---the exponential of the average loss. Lower perplexity means better predictions. A perplexity of 10 means the model is, on average, as ``surprised'' as if choosing from 10 equally likely options.
+\end{keypoint}
+
+% -----------------------------------------------------------------------------
+\section{Weight Initialization}
+% -----------------------------------------------------------------------------
+
+Proper initialization is crucial for stable training.
+
+\subsection{TryLM's Initialization Strategy}
+
+\begin{lstlisting}[style=python, caption={Weight initialization from model.py}]
+def _init_weights(self, module: nn.Module) -> None:
+    if isinstance(module, nn.Linear):
+        torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+        if module.bias is not None:
+            torch.nn.init.zeros_(module.bias)
+
+    elif isinstance(module, nn.Embedding):
+        torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+\end{lstlisting}
+
+\subsection{Scaled Initialization for Residuals}
+
+Output projections get special treatment:
+
+\begin{lstlisting}[style=python]
+# Scale down residual projections
+for name, p in self.named_parameters():
+    if name.endswith("out_proj.weight") or name.endswith("down_proj.weight"):
+        torch.nn.init.normal_(
+            p,
+            mean=0.0,
+            std=0.02 / math.sqrt(2 * config.n_layers)
+        )
+\end{lstlisting}
+
+\subsection{Why Scale?}
+
+Residual connections sum contributions from many layers. Without scaling, the variance grows with depth:
+
+\begin{equation}
+\text{Variance after } L \text{ layers} \propto L
+\end{equation}
+
+Scaling by $1/\sqrt{2L}$ keeps variance bounded, enabling stable training of deep networks.
+
+% -----------------------------------------------------------------------------
+\section{Parameter Count}
+% -----------------------------------------------------------------------------
+
+Let's calculate the exact parameter count for \TryLM.
+
+\subsection{Component Breakdown}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lrr}
+\toprule
+\textbf{Component} & \textbf{Formula} & \textbf{Parameters} \\
+\midrule
+Token Embedding & $V \times d$ & $16384 \times 384 = 6,291,456$ \\
+\addlinespace
+\textit{Per Transformer Block:} & & \\
+\quad QKV Projection & $d \times 3d$ & $384 \times 1152 = 442,368$ \\
+\quad Output Projection & $d \times d$ & $384 \times 384 = 147,456$ \\
+\quad Gate Projection & $d \times h$ & $384 \times 1024 = 393,216$ \\
+\quad Up Projection & $d \times h$ & $384 \times 1024 = 393,216$ \\
+\quad Down Projection & $h \times d$ & $1024 \times 384 = 393,216$ \\
+\quad 2 × RMSNorm & $2 \times d$ & $2 \times 384 = 768$ \\
+\quad \textit{Block Total} & & $1,770,240$ \\
+\addlinespace
+6 Blocks & $6 \times 1,770,240$ & $10,621,440$ \\
+Final RMSNorm & $d$ & $384$ \\
+LM Head & (tied with embedding) & $0$ \\
+\midrule
+\textbf{Total} & & $\mathbf{16,913,280}$ \\
+\bottomrule
+\end{tabular}
+\caption{Detailed parameter breakdown for TryLM}
+\label{tab:parameter-count}
+\end{table}
+
+\begin{note}
+The actual count may vary slightly due to rounding in the FFN hidden dimension. The model is approximately 10.8M parameters after weight tying (since embeddings are counted once).
+\end{note}
+
+\subsection{Parameter Count Method}
+
+\begin{lstlisting}[style=python, caption={Parameter counting from config.py}]
+def count_parameters(self) -> dict[str, int]:
+    """Estimate parameter counts for each component."""
+    d = self.d_model
+    h = int(2 * self.d_ff / 3)
+    h = 256 * ((h + 255) // 256)  # Round to 256
+
+    token_emb = self.vocab_size * d
+    block_params = (
+        3 * d * d +      # QKV projection
+        d * d +          # Output projection
+        3 * d * h +      # FFN: gate, up, down
+        2 * d            # 2 RMSNorm layers
+    )
+    total_blocks = block_params * self.n_layers
+    final_norm = d
+
+    return {
+        "token_embedding": token_emb,
+        "per_block": block_params,
+        "all_blocks": total_blocks,
+        "final_norm": final_norm,
+        "lm_head": 0,  # Tied with embedding
+        "total": token_emb + total_blocks + final_norm,
+    }
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\section{Model Configuration}
+% -----------------------------------------------------------------------------
+
+The model is fully configured through the \texttt{ModelConfig} dataclass:
+
+\begin{lstlisting}[style=python, caption={ModelConfig from config.py}]
+@dataclass
+class ModelConfig:
+    vocab_size: int = 16384      # Vocabulary size
+    n_layers: int = 6            # Number of transformer blocks
+    n_heads: int = 6             # Number of attention heads
+    d_model: int = 384           # Model/embedding dimension
+    d_ff: int = 1536             # FFN hidden dimension
+    context_length: int = 512    # Maximum sequence length
+    dropout: float = 0.1         # Dropout rate
+    bias: bool = False           # Use bias in linear layers
+
+    @property
+    def head_dim(self) -> int:
+        return self.d_model // self.n_heads  # 384 / 6 = 64
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\section{Model Variants}
+% -----------------------------------------------------------------------------
+
+You can easily create different model sizes by adjusting the configuration:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lrrrrr}
+\toprule
+\textbf{Variant} & \textbf{Layers} & \textbf{Heads} & \textbf{$d$} & \textbf{FFN} & \textbf{Params} \\
+\midrule
+Tiny & 4 & 4 & 256 & 1024 & $\sim$5M \\
+Small (default) & 6 & 6 & 384 & 1536 & $\sim$11M \\
+Medium & 8 & 8 & 512 & 2048 & $\sim$25M \\
+Large & 12 & 12 & 768 & 3072 & $\sim$85M \\
+\bottomrule
+\end{tabular}
+\caption{Different model sizes by configuration}
+\label{tab:model-variants}
+\end{table}
+
+\begin{lstlisting}[style=python]
+# Create a medium model
+config = ModelConfig(
+    n_layers=8,
+    n_heads=8,
+    d_model=512,
+    d_ff=2048,
+)
+model = GPT(config)
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\section{Putting It All Together}
+% -----------------------------------------------------------------------------
+
+Here's a complete example of creating and using the model:
+
+\begin{lstlisting}[style=python]
+from trylm.model import GPT
+from trylm.config import ModelConfig
+from trylm.tokenizer import TryLMTokenizer
+import torch
+
+# Load tokenizer
+tokenizer = TryLMTokenizer.load("data/tokenizer")
+
+# Create model
+config = ModelConfig(vocab_size=tokenizer.vocab_size)
+model = GPT(config)
+model.eval()
+
+# Prepare input
+text = "Once upon a time"
+input_ids = torch.tensor([tokenizer.encode(text)])  # [1, seq_len]
+
+# Forward pass (inference)
+with torch.no_grad():
+    outputs = model(input_ids)
+    logits = outputs["logits"]  # [1, seq_len, vocab_size]
+
+# Get prediction for next token
+next_token_logits = logits[0, -1, :]  # [vocab_size]
+next_token_id = next_token_logits.argmax().item()
+next_token = tokenizer.decode([next_token_id])
+print(f"Predicted next token: {next_token}")
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\section{Exercises}
+% -----------------------------------------------------------------------------
+
+\begin{exercise}
+\textbf{Trace Tensor Shapes}
+
+For batch\_size=4 and seq\_len=128, trace the shape through each step:
+\begin{enumerate}
+    \item After token embedding
+    \item After each transformer block
+    \item After final norm
+    \item After lm\_head
+\end{enumerate}
+\end{exercise}
+
+\begin{exercise}
+\textbf{Verify Weight Tying}
+
+Check that weight tying works correctly:
+\begin{lstlisting}[style=python, numbers=none]
+model = GPT(ModelConfig())
+
+# These should be the same tensor
+print(model.token_embedding.weight.data_ptr())
+print(model.lm_head.weight.data_ptr())
+
+# Modify one, check the other changes
+model.token_embedding.weight[0, 0] = 999.0
+print(model.lm_head.weight[0, 0])  # Should be 999.0
+\end{lstlisting}
+\end{exercise}
+
+\begin{exercise}
+\textbf{Calculate Memory Usage}
+
+For a batch\_size=32 and seq\_len=512 forward pass:
+\begin{enumerate}
+    \item Memory for model parameters (float32)
+    \item Memory for attention scores (all 6 heads, all layers)
+    \item Memory for activations (estimate)
+\end{enumerate}
+\end{exercise}
+
+\begin{exercise}
+\textbf{Create a Custom Model}
+
+Define a custom model configuration with:
+\begin{itemize}
+    \item 4 layers
+    \item 4 heads
+    \item 256 model dimension
+    \item Context length of 256
+\end{itemize}
+
+Calculate its parameter count and verify with \texttt{model.count\_parameters()}.
+\end{exercise}
+
+% -----------------------------------------------------------------------------
+\section{Summary}
+% -----------------------------------------------------------------------------
+
+\begin{summary}
+    \item The \textbf{GPT model} = embedding + transformer blocks + norm + output projection
+    \item \textbf{Forward pass}: tokens $\to$ embeddings $\to$ blocks $\to$ norm $\to$ logits
+    \item \textbf{Loss computation} uses a shift to align predictions with next-token targets
+    \item \textbf{Weight initialization} uses $\mathcal{N}(0, 0.02)$ with scaled residual projections
+    \item \textbf{Weight tying} shares parameters between embedding and output projection
+    \item \TryLM has $\sim$\textbf{10.8M parameters} (after tying)
+    \item Model size is easily \textbf{configurable} through \texttt{ModelConfig}
+\end{summary}
+
+We now have a complete understanding of the GPT architecture! In Part III, we'll learn how to train this model to actually generate coherent text.

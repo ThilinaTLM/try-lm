@@ -1,0 +1,412 @@
+% =============================================================================
+% TryLM Tutorial Book - Preamble
+% =============================================================================
+
+% -----------------------------------------------------------------------------
+% Document Class Settings
+% -----------------------------------------------------------------------------
+% Using KOMA-Script book class for better typography
+\usepackage{scrhack}
+
+% -----------------------------------------------------------------------------
+% Page Layout
+% -----------------------------------------------------------------------------
+\usepackage[margin=1in]{geometry}
+\usepackage{fancyhdr}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[LE,RO]{\thepage}
+\fancyhead[LO]{\nouppercase{\rightmark}}
+\fancyhead[RE]{\nouppercase{\leftmark}}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% -----------------------------------------------------------------------------
+% Typography and Fonts
+% -----------------------------------------------------------------------------
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+
+% -----------------------------------------------------------------------------
+% Mathematics
+% -----------------------------------------------------------------------------
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{mathtools}
+\usepackage{bm}  % Bold math symbols
+
+% Custom math commands
+\newcommand{\softmax}{\operatorname{softmax}}
+\newcommand{\ReLU}{\operatorname{ReLU}}
+\newcommand{\sigmoid}{\operatorname{sigmoid}}
+% \tanh is already defined in LaTeX
+\newcommand{\LayerNorm}{\operatorname{LayerNorm}}
+\newcommand{\RMSNorm}{\operatorname{RMSNorm}}
+\newcommand{\Attention}{\operatorname{Attention}}
+\newcommand{\FFN}{\operatorname{FFN}}
+\newcommand{\SwiGLU}{\operatorname{SwiGLU}}
+\newcommand{\Swish}{\operatorname{Swish}}
+\newcommand{\transpose}{\mathsf{T}}
+\newcommand{\vocab}{\mathcal{V}}
+\newcommand{\loss}{\mathcal{L}}
+
+% -----------------------------------------------------------------------------
+% Code Listings
+% -----------------------------------------------------------------------------
+\usepackage{listings}
+\usepackage{xcolor}
+
+% Define colors for code highlighting
+\definecolor{codebg}{RGB}{248, 248, 248}
+\definecolor{codeframe}{RGB}{200, 200, 200}
+\definecolor{codecomment}{RGB}{106, 153, 85}
+\definecolor{codekeyword}{RGB}{86, 156, 214}
+\definecolor{codestring}{RGB}{206, 145, 120}
+\definecolor{codenumber}{RGB}{181, 206, 168}
+\definecolor{codefunction}{RGB}{220, 220, 170}
+
+% Python style
+\lstdefinestyle{python}{
+    language=Python,
+    basicstyle=\small\ttfamily,
+    backgroundcolor=\color{codebg},
+    frame=single,
+    framesep=5pt,
+    rulecolor=\color{codeframe},
+    commentstyle=\color{codecomment}\itshape,
+    keywordstyle=\color{codekeyword}\bfseries,
+    stringstyle=\color{codestring},
+    numberstyle=\tiny\color{codenumber},
+    numbers=left,
+    numbersep=8pt,
+    breaklines=true,
+    breakatwhitespace=true,
+    showstringspaces=false,
+    tabsize=4,
+    captionpos=b,
+    morekeywords={self, True, False, None, yield, async, await},
+    emph={__init__, forward, __call__, __len__, __getitem__},
+    emphstyle=\color{codefunction},
+    literate={->}{$\rightarrow$}1,
+}
+
+% Shell/Bash style
+\lstdefinestyle{shell}{
+    language=bash,
+    basicstyle=\small\ttfamily,
+    backgroundcolor=\color{codebg},
+    frame=single,
+    framesep=5pt,
+    rulecolor=\color{codeframe},
+    commentstyle=\color{codecomment}\itshape,
+    keywordstyle=\color{codekeyword}\bfseries,
+    numbers=none,
+    breaklines=true,
+    showstringspaces=false,
+    tabsize=4,
+}
+
+% YAML style
+\lstdefinestyle{yaml}{
+    basicstyle=\small\ttfamily,
+    backgroundcolor=\color{codebg},
+    frame=single,
+    framesep=5pt,
+    rulecolor=\color{codeframe},
+    commentstyle=\color{codecomment}\itshape,
+    keywordstyle=\color{codekeyword},
+    stringstyle=\color{codestring},
+    numbers=none,
+    breaklines=true,
+    showstringspaces=false,
+    tabsize=2,
+}
+
+\lstset{style=python}
+
+% Inline code command
+\newcommand{\code}[1]{\texttt{\small #1}}
+\newcommand{\pycode}[1]{\lstinline[style=python]{#1}}
+
+% -----------------------------------------------------------------------------
+% Diagrams with TikZ
+% -----------------------------------------------------------------------------
+\usepackage{tikz}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usetikzlibrary{
+    positioning,
+    arrows.meta,
+    shapes.geometric,
+    shapes.misc,
+    shapes.symbols,
+    shapes.multipart,
+    matrix,
+    calc,
+    fit,
+    backgrounds,
+    decorations.pathreplacing,
+    decorations.markings,
+    patterns,
+    chains,
+}
+
+% TikZ styles for neural network diagrams
+\tikzset{
+    % Basic node styles
+    neuron/.style={circle, draw, minimum size=8mm, inner sep=0pt},
+    hidden neuron/.style={neuron, fill=blue!20},
+    input neuron/.style={neuron, fill=green!20},
+    output neuron/.style={neuron, fill=red!20},
+    % Block styles
+    block/.style={rectangle, draw, rounded corners=3pt, minimum height=10mm,
+                  minimum width=20mm, align=center, fill=blue!10},
+    attention block/.style={block, fill=orange!20},
+    ffn block/.style={block, fill=green!20},
+    norm block/.style={block, fill=yellow!20, minimum width=15mm},
+    embed block/.style={block, fill=purple!20},
+    % Arrow styles
+    arrow/.style={-{Stealth[length=2mm]}, thick},
+    skip arrow/.style={arrow, dashed, gray},
+    data flow/.style={arrow, blue!70},
+    % Matrix styles
+    tensor/.style={matrix of nodes, nodes={draw, minimum size=6mm, anchor=center},
+                   column sep=-\pgflinewidth, row sep=-\pgflinewidth},
+    % Annotation styles
+    annot/.style={font=\footnotesize, text=gray},
+    label box/.style={rectangle, draw, dashed, gray, inner sep=2mm},
+}
+
+% -----------------------------------------------------------------------------
+% Colored Boxes (tcolorbox)
+% -----------------------------------------------------------------------------
+\usepackage[most]{tcolorbox}
+
+% Learning objectives box
+\newtcolorbox{objectives}{
+    enhanced,
+    colback=blue!5,
+    colframe=blue!75!black,
+    fonttitle=\bfseries,
+    title=Learning Objectives,
+    before upper={\begin{itemize}[leftmargin=*,nosep]},
+    after upper={\end{itemize}},
+    boxrule=1pt,
+    arc=3pt,
+    left=5pt,
+    right=5pt,
+    top=5pt,
+    bottom=5pt,
+}
+
+% Key concept box
+\newtcolorbox{keypoint}[1][]{
+    enhanced,
+    colback=green!5,
+    colframe=green!50!black,
+    fonttitle=\bfseries,
+    title={Key Concept},
+    boxrule=1pt,
+    arc=3pt,
+    left=5pt,
+    right=5pt,
+    #1
+}
+
+% Common pitfall/warning box
+\newtcolorbox{pitfall}[1][]{
+    enhanced,
+    colback=red!5,
+    colframe=red!75!black,
+    fonttitle=\bfseries,
+    title={Common Pitfall},
+    boxrule=1pt,
+    arc=3pt,
+    left=5pt,
+    right=5pt,
+    before upper={\setlength{\parindent}{0pt}},
+    #1
+}
+
+% Exercise box
+\newtcolorbox{exercise}[1][]{
+    enhanced,
+    colback=orange!5,
+    colframe=orange!75!black,
+    fonttitle=\bfseries,
+    title={Exercise},
+    boxrule=1pt,
+    arc=3pt,
+    left=5pt,
+    right=5pt,
+    #1
+}
+
+% Note/tip box
+\newtcolorbox{note}[1][]{
+    enhanced,
+    colback=cyan!5,
+    colframe=cyan!75!black,
+    fonttitle=\bfseries,
+    title={Note},
+    boxrule=1pt,
+    arc=3pt,
+    left=5pt,
+    right=5pt,
+    #1
+}
+
+% Definition box
+\newtcolorbox{definition}[1][]{
+    enhanced,
+    colback=gray!5,
+    colframe=gray!75!black,
+    fonttitle=\bfseries,
+    title={Definition},
+    boxrule=1pt,
+    arc=3pt,
+    left=5pt,
+    right=5pt,
+    #1
+}
+
+% Summary box (for end of chapter)
+\newtcolorbox{summary}{
+    enhanced,
+    colback=violet!5,
+    colframe=violet!75!black,
+    fonttitle=\bfseries,
+    title={Chapter Summary},
+    boxrule=1pt,
+    arc=3pt,
+    left=5pt,
+    right=5pt,
+    before upper={\begin{itemize}[leftmargin=*,nosep]},
+    after upper={\end{itemize}},
+}
+
+% -----------------------------------------------------------------------------
+% Tables
+% -----------------------------------------------------------------------------
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{multirow}
+
+% Better column types
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+\newcolumntype{R}[1]{>{\raggedleft\arraybackslash}p{#1}}
+
+% -----------------------------------------------------------------------------
+% Figures and Captions
+% -----------------------------------------------------------------------------
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float}
+
+\captionsetup{
+    font=small,
+    labelfont=bf,
+    format=hang,
+    margin=10pt,
+}
+
+% -----------------------------------------------------------------------------
+% Cross-references and Links
+% -----------------------------------------------------------------------------
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!70!black,
+    citecolor=green!50!black,
+    urlcolor=blue!70!black,
+    bookmarks=true,
+    bookmarksnumbered=true,
+    pdfauthor={TryLM Tutorial},
+    pdftitle={Building Language Models from Scratch},
+    pdfsubject={Language Model Tutorial},
+    pdfkeywords={LLM, Transformer, GPT, PyTorch, Deep Learning},
+}
+
+\usepackage{cleveref}
+\crefname{figure}{Figure}{Figures}
+\crefname{table}{Table}{Tables}
+\crefname{equation}{Equation}{Equations}
+\crefname{chapter}{Chapter}{Chapters}
+\crefname{section}{Section}{Sections}
+\crefname{appendix}{Appendix}{Appendices}
+
+% -----------------------------------------------------------------------------
+% Lists
+% -----------------------------------------------------------------------------
+\usepackage{enumitem}
+\setlist{noitemsep, topsep=3pt}
+
+% -----------------------------------------------------------------------------
+% Bibliography (if needed)
+% -----------------------------------------------------------------------------
+\usepackage[style=numeric, sorting=none, backend=biber]{biblatex}
+% \addbibresource{references.bib}
+
+% -----------------------------------------------------------------------------
+% Miscellaneous
+% -----------------------------------------------------------------------------
+\usepackage{xspace}
+\usepackage{siunitx}  % SI units
+\usepackage{datetime2}  % Date formatting
+
+% Custom commands
+\newcommand{\TryLM}{\textsc{TryLM}\xspace}
+\newcommand{\PyTorch}{\textsc{PyTorch}\xspace}
+\newcommand{\Python}{\textsc{Python}\xspace}
+\newcommand{\GPT}{\textsc{GPT}\xspace}
+\newcommand{\transformer}{Transformer\xspace}
+
+% Parameter notation
+\newcommand{\param}[1]{\texttt{#1}}
+\newcommand{\file}[1]{\texttt{#1}}
+\newcommand{\cmd}[1]{\texttt{\$ #1}}
+
+% Dimension notation (e.g., [batch, seq, hidden])
+\newcommand{\shape}[1]{{\small\textsf{[#1]}}}
+
+% -----------------------------------------------------------------------------
+% Chapter style customization
+% -----------------------------------------------------------------------------
+\usepackage{titlesec}
+
+\titleformat{\chapter}[display]
+    {\normalfont\huge\bfseries}
+    {\chaptertitlename\ \thechapter}
+    {20pt}
+    {\Huge}
+
+\titleformat{\section}
+    {\normalfont\Large\bfseries}
+    {\thesection}
+    {1em}
+    {}
+
+\titleformat{\subsection}
+    {\normalfont\large\bfseries}
+    {\thesubsection}
+    {1em}
+    {}
+
+% -----------------------------------------------------------------------------
+% Algorithms (optional, for pseudocode)
+% -----------------------------------------------------------------------------
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+\algrenewcommand\algorithmicrequire{\textbf{Input:}}
+\algrenewcommand\algorithmicensure{\textbf{Output:}}
+
+% -----------------------------------------------------------------------------
+% End of Preamble
+% -----------------------------------------------------------------------------

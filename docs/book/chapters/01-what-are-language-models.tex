@@ -1,0 +1,353 @@
+% =============================================================================
+% Chapter 1: What Are Language Models?
+% =============================================================================
+\chapter{What Are Language Models?}
+\label{ch:what-are-lms}
+
+\begin{objectives}
+    \item Understand what language models are and what they do
+    \item Grasp the concept of next-token prediction
+    \item Learn the relationship between small and large language models
+    \item Understand why TinyStories is an ideal dataset for learning
+\end{objectives}
+
+% -----------------------------------------------------------------------------
+\section{The Big Picture}
+% -----------------------------------------------------------------------------
+
+Language models are among the most transformative technologies of our era. From ChatGPT to code assistants, translation services to creative writing tools, language models power an increasingly wide range of applications. But what exactly \textit{is} a language model?
+
+\begin{definition}[title=Language Model]
+A \textbf{language model} is a probabilistic model that assigns probabilities to sequences of words (or tokens). Given a sequence of words, it can predict what word is most likely to come next.
+\end{definition}
+
+At its core, a language model answers a simple question: \textit{``Given what has been said so far, what word is most likely to come next?''}
+
+For example, given the text:
+\begin{quote}
+    ``The cat sat on the...''
+\end{quote}
+a language model might assign the following probabilities:
+\begin{itemize}
+    \item ``mat'' --- 35\%
+    \item ``floor'' --- 20\%
+    \item ``chair'' --- 15\%
+    \item ``roof'' --- 5\%
+    \item (other words) --- 25\%
+\end{itemize}
+
+This simple capability---predicting the next word---turns out to be remarkably powerful. By repeatedly predicting and sampling the next word, we can \textit{generate} coherent text.
+
+% -----------------------------------------------------------------------------
+\section{Next-Token Prediction: The Core Mechanism}
+% -----------------------------------------------------------------------------
+
+Modern language models like GPT (Generative Pre-trained Transformer) work through a process called \textbf{autoregressive generation}. The model generates text one token at a time, where each new token is predicted based on all the tokens that came before it.
+
+\begin{keypoint}
+A language model computes $P(x_t | x_1, x_2, \ldots, x_{t-1})$---the probability of the next token $x_t$ given all previous tokens. This is called \textbf{next-token prediction} or \textbf{causal language modeling}.
+\end{keypoint}
+
+\subsection{The Autoregressive Loop}
+
+Text generation works like this:
+\begin{enumerate}
+    \item Start with a \textbf{prompt}: ``Once upon a time''
+    \item The model predicts a probability distribution over all possible next tokens
+    \item \textbf{Sample} a token from this distribution (e.g., ``there'')
+    \item Append the sampled token to the sequence: ``Once upon a time there''
+    \item Repeat steps 2--4 until we reach a stopping condition
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    box/.style={rectangle, draw, minimum width=2cm, minimum height=0.8cm, align=center},
+    arrow/.style={-{Stealth[length=2mm]}, thick},
+]
+    % Input sequence
+    \node[box, fill=blue!10] (once) at (0, 0) {Once};
+    \node[box, fill=blue!10] (upon) at (2, 0) {upon};
+    \node[box, fill=blue!10] (a) at (4, 0) {a};
+    \node[box, fill=blue!10] (time) at (6, 0) {time};
+    \node[box, fill=green!20, dashed] (next) at (8, 0) {?};
+
+    % Model
+    \node[box, fill=orange!20, minimum width=8cm, minimum height=1cm] (model) at (4, -1.5) {Language Model};
+
+    % Probabilities
+    \node[box, fill=yellow!20, minimum width=3cm] (probs) at (8, -3) {
+        \begin{tabular}{ll}
+        there & 40\% \\
+        , & 25\% \\
+        in & 15\% \\
+        ... & ...
+        \end{tabular}
+    };
+
+    % Arrows
+    \draw[arrow] (4, -0.4) -- (4, -1);
+    \draw[arrow] (model.south) -- (probs.north);
+    \draw[arrow, dashed, green!60!black] (probs.north west) -- (next.south);
+
+    % Labels
+    \node[font=\small, gray] at (8, -4.3) {Sample: ``there''};
+\end{tikzpicture}
+\caption{The autoregressive generation process. The model takes all previous tokens as input and outputs a probability distribution over possible next tokens.}
+\label{fig:autoregressive}
+\end{figure}
+
+\subsection{Tokens vs. Words}
+
+You may have noticed we use the term ``token'' rather than ``word.'' This is intentional. Modern language models don't operate on words directly---they operate on \textbf{tokens}, which are subword units.
+
+For example, the word ``understanding'' might be split into tokens like:
+\begin{lstlisting}[style=shell, numbers=none]
+["under", "stand", "ing"]
+\end{lstlisting}
+
+This approach, called \textbf{subword tokenization}, offers several advantages:
+\begin{itemize}
+    \item Handles rare and unknown words gracefully
+    \item Keeps vocabulary size manageable
+    \item Works across languages
+\end{itemize}
+
+We'll explore tokenization in depth in \cref{ch:tokenization}.
+
+% -----------------------------------------------------------------------------
+\section{Training vs. Inference}
+% -----------------------------------------------------------------------------
+
+Language models have two distinct modes of operation:
+
+\subsection{Training (Learning)}
+
+During training, the model learns to predict the next token by observing millions of text examples. For each position in a text sequence, the model:
+\begin{enumerate}
+    \item Sees all tokens up to that position
+    \item Predicts the next token
+    \item Compares its prediction to the actual next token
+    \item Adjusts its parameters to improve future predictions
+\end{enumerate}
+
+The key insight is that training data provides ``free supervision''---we don't need humans to label each example because the next word in any text serves as the label.
+
+\begin{keypoint}
+Language model training is \textbf{self-supervised}: the training signal comes from the text itself, not from human annotations. This allows training on massive amounts of unlabeled text.
+\end{keypoint}
+
+\subsection{Inference (Generation)}
+
+During inference, we use the trained model to generate new text. The model applies what it learned during training to produce coherent continuations of any given prompt.
+
+% -----------------------------------------------------------------------------
+\section{Model Sizes: From TryLM to GPT-4}
+% -----------------------------------------------------------------------------
+
+Language models come in vastly different sizes, typically measured by their parameter count:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lrl}
+\toprule
+\textbf{Model} & \textbf{Parameters} & \textbf{Scale} \\
+\midrule
+TryLM (this book) & 10--17M & Small \\
+GPT-2 Small & 124M & Medium \\
+GPT-2 XL & 1.5B & Large \\
+LLaMA 7B & 7B & Very Large \\
+GPT-3 & 175B & Massive \\
+GPT-4 & $\sim$1.8T (estimated) & Enormous \\
+\bottomrule
+\end{tabular}
+\caption{Comparison of language model sizes. TryLM is intentionally small for educational purposes.}
+\label{tab:model-sizes}
+\end{table}
+
+\subsection{Why Start Small?}
+
+You might wonder: if bigger models are more capable, why build a small one?
+
+\begin{enumerate}
+    \item \textbf{Understanding}: Small models let you see every component clearly without being overwhelmed by scale.
+
+    \item \textbf{Iteration Speed}: Training a 10M parameter model takes hours, not weeks. You can experiment and learn quickly.
+
+    \item \textbf{Hardware Accessibility}: You can train TryLM on a single consumer GPU (or even CPU, slowly).
+
+    \item \textbf{Same Architecture}: TryLM uses the \textit{same architectural patterns} as billion-parameter models. The principles transfer directly.
+\end{enumerate}
+
+\begin{keypoint}
+A 10-million parameter model and a 10-billion parameter model differ in \textit{scale}, not in \textit{kind}. Understanding the small model gives you genuine insight into the large one.
+\end{keypoint}
+
+% -----------------------------------------------------------------------------
+\section{The TinyStories Dataset}
+% -----------------------------------------------------------------------------
+
+\TryLM trains on the \textbf{TinyStories} dataset, a collection of short stories written in simple language. This dataset was specifically designed for training and studying small language models.
+
+\subsection{Why TinyStories?}
+
+TinyStories was created by researchers at Microsoft who asked: \textit{``How small can a language model be and still produce coherent, grammatical text?''}
+
+Key properties of TinyStories:
+\begin{itemize}
+    \item \textbf{Simple vocabulary}: Uses words that a 3--4 year old would understand
+    \item \textbf{Short stories}: Each story is a few paragraphs long
+    \item \textbf{Consistent structure}: Stories follow narrative patterns (beginning, middle, end)
+    \item \textbf{Clean data}: Synthetically generated by GPT-3.5/4, so it's grammatically correct
+\end{itemize}
+
+\subsection{Example Story}
+
+Here's a typical TinyStories example:
+
+\begin{quote}
+\textit{Once upon a time, there was a little girl named Lily. She loved to play in the garden with her dog, Max. One sunny day, Lily found a beautiful red flower.}
+
+\textit{``Look, Max!'' she said. ``Isn't it pretty?''}
+
+\textit{Max wagged his tail. Lily picked the flower and gave it to her mom. Her mom smiled and said, ``Thank you, Lily. You are so kind.''}
+
+\textit{Lily felt happy. She learned that sharing makes everyone smile.}
+\end{quote}
+
+\subsection{Training on TinyStories}
+
+When you train \TryLM on this dataset, the model learns:
+\begin{itemize}
+    \item Basic grammar and sentence structure
+    \item Common narrative patterns (``Once upon a time...'')
+    \item Character names and relationships
+    \item Simple cause-and-effect reasoning
+    \item Story conclusions and morals
+\end{itemize}
+
+After training, you can prompt the model with ``Once upon a time'' and it will generate its own coherent (if simple) stories.
+
+% -----------------------------------------------------------------------------
+\section{Modern Transformer Architecture}
+% -----------------------------------------------------------------------------
+
+\TryLM is built on the \textbf{Transformer architecture}, the dominant architecture for language models since 2017. We'll cover the transformer in detail in Part II, but here's a preview of what makes it special.
+
+\subsection{Key Innovations}
+
+The transformer introduced several breakthrough ideas:
+
+\begin{enumerate}
+    \item \textbf{Self-Attention}: The ability to look at all other positions in the input when processing each position. This allows the model to capture long-range dependencies.
+
+    \item \textbf{Parallelization}: Unlike previous sequential models (RNNs), transformers can process all positions simultaneously during training, making them much faster.
+
+    \item \textbf{Scalability}: Transformers scale remarkably well---performance continues to improve as we add more parameters and data.
+\end{enumerate}
+
+\subsection{TryLM's Architecture}
+
+\TryLM uses a \textbf{decoder-only} transformer (the ``GPT style''), which is optimized for text generation. It incorporates several modern improvements over the original transformer:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Component} & \textbf{Modern Choice} \\
+\midrule
+Normalization & RMSNorm (instead of LayerNorm) \\
+Position Encoding & RoPE (instead of learned embeddings) \\
+Activation & SwiGLU (instead of GELU/ReLU) \\
+Norm Placement & Pre-norm (instead of post-norm) \\
+\bottomrule
+\end{tabular}
+\caption{Modern architectural choices used in TryLM}
+\label{tab:architecture-choices}
+\end{table}
+
+We'll explain why each of these choices was made in \cref{ch:design-choices}.
+
+% -----------------------------------------------------------------------------
+\section{What You'll Build}
+% -----------------------------------------------------------------------------
+
+Over the course of this book, you'll understand every component of a working language model:
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    box/.style={rectangle, draw, rounded corners, minimum width=3cm, minimum height=0.8cm, align=center, fill=blue!10},
+    arrow/.style={-{Stealth[length=2mm]}, thick},
+]
+    % Components
+    \node[box] (tok) at (0, 0) {Tokenizer};
+    \node[box] (data) at (0, -1.2) {Data Pipeline};
+    \node[box] (emb) at (0, -2.4) {Embeddings};
+    \node[box] (attn) at (0, -3.6) {Self-Attention};
+    \node[box] (ffn) at (0, -4.8) {Feed-Forward};
+    \node[box] (train) at (0, -6) {Training Loop};
+    \node[box] (gen) at (0, -7.2) {Generation};
+
+    % Chapters
+    \node[right=1cm of tok, font=\small, gray] {Chapter 3};
+    \node[right=1cm of data, font=\small, gray] {Chapter 4};
+    \node[right=1cm of emb, font=\small, gray] {Chapter 5};
+    \node[right=1cm of attn, font=\small, gray] {Chapter 6};
+    \node[right=1cm of ffn, font=\small, gray] {Chapter 7--8};
+    \node[right=1cm of train, font=\small, gray] {Chapters 9--11};
+    \node[right=1cm of gen, font=\small, gray] {Chapter 12};
+
+    % Arrows
+    \draw[arrow] (tok) -- (data);
+    \draw[arrow] (data) -- (emb);
+    \draw[arrow] (emb) -- (attn);
+    \draw[arrow] (attn) -- (ffn);
+    \draw[arrow] (ffn) -- (train);
+    \draw[arrow] (train) -- (gen);
+\end{tikzpicture}
+\caption{The components you'll build throughout this book}
+\label{fig:components}
+\end{figure}
+
+% -----------------------------------------------------------------------------
+\section{Exercises}
+% -----------------------------------------------------------------------------
+
+\begin{exercise}
+\textbf{Explore Language Model Behavior}
+
+Go to any public LLM interface (e.g., ChatGPT, Claude) and observe the generation process:
+\begin{enumerate}
+    \item Notice how text appears token by token
+    \item Try the same prompt multiple times---do you get identical responses?
+    \item What does this tell you about the probabilistic nature of language models?
+\end{enumerate}
+\end{exercise}
+
+\begin{exercise}
+\textbf{Thought Experiment}
+
+Consider a language model trained only on TinyStories (simple children's stories). What tasks would this model likely be able to do? What would it fail at? Write down your predictions and revisit them after training your own model.
+\end{exercise}
+
+\begin{exercise}
+\textbf{Probability Intuition}
+
+Given the sentence ``The dog chased the...'', list 5 possible next words and estimate their probabilities. How would these probabilities change if the context was ``The cat chased the...''?
+\end{exercise}
+
+% -----------------------------------------------------------------------------
+\section{Summary}
+% -----------------------------------------------------------------------------
+
+\begin{summary}
+    \item A \textbf{language model} predicts the next token given previous tokens
+    \item \textbf{Autoregressive generation} produces text one token at a time
+    \item Training is \textbf{self-supervised}---no manual labels needed
+    \item \TryLM is small (10--17M parameters) but uses \textbf{modern architectural patterns}
+    \item The \textbf{TinyStories} dataset is ideal for learning due to its simple, consistent structure
+    \item Understanding small models provides genuine insight into larger ones
+\end{summary}
+
+In the next chapter, we'll set up your development environment and explore the \TryLM codebase structure.

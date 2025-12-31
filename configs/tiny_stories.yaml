@@ -1,0 +1,54 @@
+# TryLM Configuration for TinyStories
+# ~10M parameter GPT model
+
+tokenizer:
+  vocab_size: 16384
+  min_frequency: 2
+  special_tokens:
+    - "<|pad|>"
+    - "<|eos|>"
+    - "<|bos|>"
+    - "<|unk|>"
+  save_path: data/tokenizer
+
+model:
+  vocab_size: 16384  # Will be updated from tokenizer
+  n_layers: 6
+  n_heads: 6
+  d_model: 384
+  d_ff: 1536
+  context_length: 512
+  dropout: 0.1
+  bias: false
+
+train:
+  # Dataset
+  dataset_name: roneneldan/TinyStories
+  train_split: train
+  val_split: validation
+
+  # Training
+  batch_size: 64
+  gradient_accumulation_steps: 4
+  learning_rate: 0.0003
+  weight_decay: 0.1
+  max_steps: 10000
+  warmup_steps: 100
+  grad_clip: 1.0
+
+  # Evaluation
+  eval_interval: 500
+  eval_steps: 100
+  log_interval: 10
+
+  # Checkpointing
+  checkpoint_dir: checkpoints
+  save_interval: 1000
+
+  # Hardware
+  mixed_precision: true
+  compile: true
+  seed: 42
+
+  # W&B
+  wandb_project: trylm

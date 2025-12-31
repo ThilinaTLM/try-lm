@@ -1,0 +1,56 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Data and checkpoints (large files)
+data/
+checkpoints/
+*.pt
+*.safetensors
+!data/.gitkeep
+!checkpoints/.gitkeep
+
+# W&B
+wandb/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# LaTeX (docs/book)
+docs/book/output/
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.lof
+*.lot
+*.out
+*.toc
+*.synctex.gz
+*.dvi
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
+.gitignore

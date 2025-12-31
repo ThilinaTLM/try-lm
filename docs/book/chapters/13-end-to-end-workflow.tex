@@ -1,0 +1,166 @@
+% =============================================================================
+% Chapter 13: End-to-End Workflow
+% =============================================================================
+\chapter{End-to-End Workflow}
+\label{ch:end-to-end}
+
+\begin{objectives}
+    \item Execute the complete training pipeline
+    \item Learn hyperparameter tuning strategies
+    \item Debug common training issues
+    \item Document and share your model
+\end{objectives}
+
+% -----------------------------------------------------------------------------
+\section{Complete Pipeline}
+% -----------------------------------------------------------------------------
+
+Here's the full workflow from start to finish:
+
+\begin{lstlisting}[style=shell]
+# 1. Setup
+git clone https://github.com/your-repo/trylm.git
+cd trylm
+uv sync
+
+# 2. Train tokenizer
+uv run trylm tokenizer train --vocab-size 16384
+
+# 3. Train model
+uv run trylm train \
+    --config configs/tiny_stories.yaml \
+    --max-steps 10000
+
+# 4. Evaluate
+uv run trylm eval --checkpoint checkpoints/best
+
+# 5. Generate
+uv run trylm generate "Once upon a time" \
+    --checkpoint checkpoints/best
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\section{Hyperparameter Tuning}
+% -----------------------------------------------------------------------------
+
+\subsection{Key Hyperparameters}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{llll}
+\toprule
+\textbf{Parameter} & \textbf{Default} & \textbf{Range} & \textbf{Effect} \\
+\midrule
+learning\_rate & 3e-4 & 1e-4 -- 1e-3 & Speed vs. stability \\
+batch\_size & 64 & 16 -- 256 & Memory vs. gradient quality \\
+n\_layers & 6 & 4 -- 12 & Capacity vs. compute \\
+d\_model & 384 & 256 -- 768 & Capacity vs. memory \\
+dropout & 0.1 & 0.0 -- 0.3 & Regularization strength \\
+warmup\_steps & 100 & 50 -- 500 & Training stability \\
+\bottomrule
+\end{tabular}
+\caption{Key hyperparameters and typical ranges}
+\end{table}
+
+\subsection{Tuning Strategy}
+
+\begin{enumerate}
+    \item Start with defaults
+    \item If loss explodes: reduce learning rate
+    \item If loss plateaus: increase learning rate or model size
+    \item If overfitting: increase dropout or reduce model size
+    \item If underfitting: train longer or increase model size
+\end{enumerate}
+
+% -----------------------------------------------------------------------------
+\section{Common Issues}
+% -----------------------------------------------------------------------------
+
+\begin{pitfall}[title=Loss is NaN]
+\textbf{Causes:}
+\begin{itemize}
+    \item Learning rate too high
+    \item No gradient clipping
+    \item Numerical overflow in attention
+\end{itemize}
+\textbf{Solutions:}
+\begin{itemize}
+    \item Reduce learning rate (try 1e-4)
+    \item Enable gradient clipping (--grad-clip 1.0)
+    \item Check for infinite values in data
+\end{itemize}
+\end{pitfall}
+
+\begin{pitfall}[title=Loss Not Decreasing]
+\textbf{Causes:}
+\begin{itemize}
+    \item Learning rate too low
+    \item Bug in data pipeline
+    \item Model too small
+\end{itemize}
+\textbf{Solutions:}
+\begin{itemize}
+    \item Increase learning rate
+    \item Verify data is correct (decode random samples)
+    \item Increase model capacity
+\end{itemize}
+\end{pitfall}
+
+\begin{pitfall}[title=Out of Memory]
+\textbf{Solutions:}
+\begin{itemize}
+    \item Reduce batch size
+    \item Enable gradient accumulation
+    \item Reduce context length
+    \item Enable mixed precision
+\end{itemize}
+\end{pitfall}
+
+% -----------------------------------------------------------------------------
+\section{Model Card Template}
+% -----------------------------------------------------------------------------
+
+When sharing your model, document it:
+
+\begin{lstlisting}[style=yaml]
+# Model Card: TryLM-TinyStories
+
+## Model Details
+- Architecture: GPT (decoder-only transformer)
+- Parameters: 10.8M
+- Training data: TinyStories (2.1M stories)
+- Training steps: 10,000
+
+## Performance
+- Validation perplexity: 28.5
+- Training time: 1 hour (RTX 3080)
+
+## Intended Use
+- Educational purposes
+- Story generation for children's content
+- Language model research
+
+## Limitations
+- Only trained on simple English text
+- Limited vocabulary and world knowledge
+- May produce repetitive or nonsensical output
+
+## Configuration
+vocab_size: 16384
+n_layers: 6
+n_heads: 6
+d_model: 384
+context_length: 512
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\section{Summary}
+% -----------------------------------------------------------------------------
+
+\begin{summary}
+    \item The complete pipeline: tokenizer $\to$ train $\to$ evaluate $\to$ generate
+    \item Start with \textbf{default hyperparameters}, tune based on results
+    \item Common issues: NaN loss, loss not decreasing, out of memory
+    \item \textbf{Document your model} with a model card
+    \item Expected results: PPL 20--40 after 10K steps on TinyStories
+\end{summary}

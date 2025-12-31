@@ -1,0 +1,192 @@
+% =============================================================================
+% Chapter 10: Monitoring and Checkpointing
+% =============================================================================
+\chapter{Monitoring and Checkpointing}
+\label{ch:monitoring-checkpointing}
+
+\begin{objectives}
+    \item Use Weights \& Biases for experiment tracking
+    \item Implement robust checkpointing
+    \item Resume training from checkpoints
+    \item Ensure reproducibility with seeds
+\end{objectives}
+
+% -----------------------------------------------------------------------------
+\section{Experiment Tracking with W\&B}
+% -----------------------------------------------------------------------------
+
+\textbf{Weights \& Biases} (W\&B) provides cloud-based experiment tracking.
+
+\subsection{What W\&B Logs}
+
+\TryLM logs:
+\begin{itemize}
+    \item \textbf{Metrics}: Loss, perplexity, gradient norm, learning rate
+    \item \textbf{Config}: All hyperparameters
+    \item \textbf{Samples}: Generated text examples during training
+    \item \textbf{System}: GPU memory, utilization
+\end{itemize}
+
+\subsection{Enabling W\&B}
+
+\begin{lstlisting}[style=shell]
+# Login (one-time)
+uv run wandb login
+
+# Train with logging
+uv run trylm train --wandb-project trylm --wandb-run my-experiment
+\end{lstlisting}
+
+\subsection{Implementation}
+
+\begin{lstlisting}[style=python, caption={W\&B logging from trainer.py}]
+import wandb
+
+# Initialize
+wandb.init(
+    project=config.wandb_project,
+    name=config.wandb_run_name,
+    config=asdict(config),
+)
+
+# Log metrics
+wandb.log({
+    "train/loss": loss,
+    "train/perplexity": math.exp(loss),
+    "train/learning_rate": lr,
+    "train/grad_norm": grad_norm,
+}, step=step)
+
+# Log generated samples
+samples = generate_samples(model, tokenizer)
+wandb.log({"samples": wandb.Table(data=samples)}, step=step)
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\section{Checkpointing}
+% -----------------------------------------------------------------------------
+
+Checkpoints save training state so you can resume or use the model later.
+
+\subsection{Checkpoint Contents}
+
+\begin{lstlisting}[style=shell, numbers=none]
+checkpoints/step_5000/
+|-- model.safetensors      # Model weights
+|-- training_state.pt      # Optimizer, scheduler, step
+`-- config.yaml            # Full configuration
+\end{lstlisting}
+
+\subsection{Saving Checkpoints}
+
+\begin{lstlisting}[style=python, caption={Checkpoint saving from trainer.py}]
+from safetensors.torch import save_file
+
+def save_checkpoint(self, path: Path, step: int) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+
+    # Save model weights with safetensors
+    state_dict = self.model.state_dict()
+    save_file(state_dict, path / "model.safetensors")
+
+    # Save training state
+    torch.save({
+        "step": step,
+        "optimizer": self.optimizer.state_dict(),
+        "scheduler": self.scheduler.state_dict() if self.scheduler else None,
+        "scaler": self.scaler.state_dict() if self.scaler else None,
+        "best_val_loss": self.best_val_loss,
+    }, path / "training_state.pt")
+
+    # Save config for reproducibility
+    self.full_config.to_yaml(path / "config.yaml")
+\end{lstlisting}
+
+\subsection{Loading Checkpoints}
+
+\begin{lstlisting}[style=python, caption={Checkpoint loading from trainer.py}]
+from safetensors.torch import load_file
+
+def load_checkpoint(self, path: Path) -> int:
+    # Load model weights
+    state_dict = load_file(path / "model.safetensors")
+    self.model.load_state_dict(state_dict)
+
+    # Load training state
+    training_state = torch.load(path / "training_state.pt")
+    self.optimizer.load_state_dict(training_state["optimizer"])
+    if self.scheduler and training_state["scheduler"]:
+        self.scheduler.load_state_dict(training_state["scheduler"])
+    if self.scaler and training_state["scaler"]:
+        self.scaler.load_state_dict(training_state["scaler"])
+
+    return training_state["step"]
+\end{lstlisting}
+
+\subsection{Checkpoint Strategy}
+
+\TryLM saves checkpoints at three points:
+\begin{enumerate}
+    \item \textbf{Regular intervals}: Every \texttt{save\_interval} steps (default: 1000)
+    \item \textbf{Best model}: When validation loss improves
+    \item \textbf{Final}: At training completion
+\end{enumerate}
+
+% -----------------------------------------------------------------------------
+\section{Resuming Training}
+% -----------------------------------------------------------------------------
+
+\begin{lstlisting}[style=shell]
+# Resume from a specific checkpoint
+uv run trylm train --resume checkpoints/step_5000
+
+# Resume from best checkpoint
+uv run trylm train --resume checkpoints/best
+\end{lstlisting}
+
+Resuming restores:
+\begin{itemize}
+    \item Model weights
+    \item Optimizer state (momentum, adaptive learning rates)
+    \item Training step counter
+    \item Learning rate scheduler state
+    \item Mixed precision scaler state
+\end{itemize}
+
+% -----------------------------------------------------------------------------
+\section{Reproducibility}
+% -----------------------------------------------------------------------------
+
+\subsection{Setting Seeds}
+
+\begin{lstlisting}[style=python]
+def set_seed(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+\end{lstlisting}
+
+\subsection{Deterministic Operations}
+
+\begin{lstlisting}[style=python]
+# For full reproducibility (slower)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+\end{lstlisting}
+
+\begin{keypoint}
+Even with seeds set, GPU operations may have non-deterministic behavior. For true reproducibility, save checkpoints frequently and validate on held-out data.
+\end{keypoint}
+
+% -----------------------------------------------------------------------------
+\section{Summary}
+% -----------------------------------------------------------------------------
+
+\begin{summary}
+    \item \textbf{W\&B} provides cloud experiment tracking with metrics, configs, and samples
+    \item \textbf{Checkpoints} save model, optimizer, and scheduler state
+    \item \textbf{Safetensors} format is safe and efficient for model weights
+    \item \textbf{Resume training} restores complete state from checkpoint
+    \item \textbf{Seeds} enable approximate reproducibility
+\end{summary}

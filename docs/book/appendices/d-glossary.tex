@@ -1,0 +1,208 @@
+% =============================================================================
+% Appendix D: Glossary
+% =============================================================================
+\chapter{Glossary}
+\label{app:glossary}
+
+\begin{description}[style=nextline, leftmargin=2cm]
+
+\item[Attention]
+Mechanism that allows each token to ``look at'' other tokens in the sequence. Computes weighted combinations based on relevance. See Chapter~\ref{ch:self-attention}.
+
+\item[Attention Mask]
+Binary tensor indicating which positions should be attended to (1) or ignored (0). Used to prevent attending to padding tokens.
+
+\item[Autoregressive]
+Generation strategy where each token is predicted based only on previous tokens. The model generates one token at a time, feeding each output back as input.
+
+\item[Batch Size]
+Number of training examples processed together in one forward/backward pass. Larger batches provide more stable gradients but require more memory.
+
+\item[BOS (Beginning of Sequence)]
+Special token marking the start of a sequence. In \TryLM: \texttt{<|bos|>}.
+
+\item[BPE (Byte Pair Encoding)]
+Tokenization algorithm that iteratively merges the most frequent character pairs. Creates a vocabulary of subword units.
+
+\item[Causal Masking]
+Attention pattern where each position can only attend to earlier positions. Prevents the model from ``seeing the future'' during training.
+
+\item[Checkpoint]
+Saved state of a model during training, including weights, optimizer state, and configuration. Enables resuming training and inference.
+
+\item[Context Length]
+Maximum sequence length the model can process. \TryLM uses 512 tokens.
+
+\item[Cross-Entropy Loss]
+Loss function measuring the difference between predicted probability distribution and true labels. Standard loss for classification tasks including language modeling.
+
+\item[d\_model]
+Dimension of token embeddings and hidden states throughout the model. \TryLM uses 384.
+
+\item[Decoder-Only]
+Transformer architecture using only the decoder portion with causal masking. Used for text generation (GPT-style). Contrasts with encoder-only (BERT) or encoder-decoder (T5).
+
+\item[Dropout]
+Regularization technique that randomly sets activations to zero during training. Prevents overfitting.
+
+\item[Embedding]
+Dense vector representation of a discrete token. Maps vocabulary indices to continuous vectors.
+
+\item[EOS (End of Sequence)]
+Special token marking the end of a sequence. Signals generation should stop. In \TryLM: \texttt{<|eos|>}.
+
+\item[Epoch]
+One complete pass through the entire training dataset.
+
+\item[Feed-Forward Network (FFN)]
+Two-layer neural network applied to each token independently. In transformers, typically expands dimension then projects back.
+
+\item[Fine-tuning]
+Training a pre-trained model on a specific task or dataset. Adapts general knowledge to specialized domains.
+
+\item[Flash Attention]
+Optimized attention implementation achieving O(n) memory instead of O(n²). Uses tiling to avoid materializing the full attention matrix.
+
+\item[FLOPs]
+Floating-point operations. Measure of computational cost. One forward+backward pass costs approximately 6N FLOPs per token, where N is parameter count.
+
+\item[Gradient Accumulation]
+Technique to simulate larger batch sizes by accumulating gradients over multiple forward passes before updating weights.
+
+\item[Gradient Clipping]
+Limiting gradient magnitude to prevent exploding gradients. Typically clip to max norm of 1.0.
+
+\item[Head (Attention Head)]
+One of multiple parallel attention computations in multi-head attention. Each head can learn different attention patterns.
+
+\item[Hidden Size]
+See d\_model.
+
+\item[Inference]
+Using a trained model to make predictions on new data. Contrast with training.
+
+\item[KV Cache]
+Stored key and value tensors from previous positions during generation. Avoids recomputing attention for already-generated tokens.
+
+\item[Language Model]
+Model that predicts probability distributions over tokens. Can be used for text generation, completion, and understanding.
+
+\item[LayerNorm]
+Normalization technique that normalizes across features for each example. Stabilizes training.
+
+\item[Learning Rate]
+Step size for optimizer updates. Controls how much weights change each step. Typical values: 1e-4 to 1e-3.
+
+\item[Logits]
+Raw (unnormalized) output scores from the model before softmax. Shape: (batch, sequence, vocab\_size).
+
+\item[Loss]
+Scalar value measuring how wrong the model's predictions are. Training minimizes this value.
+
+\item[Mixed Precision]
+Training with both float16 and float32 precision. Reduces memory and increases speed while maintaining accuracy.
+
+\item[MoE (Mixture of Experts)]
+Architecture using multiple ``expert'' FFN layers with a router selecting which experts process each token.
+
+\item[Multi-Head Attention]
+Attention mechanism with multiple parallel attention heads, each operating on a portion of the embedding dimension.
+
+\item[Next-Token Prediction]
+The core task of language models: given a sequence, predict the probability distribution over possible next tokens.
+
+\item[Optimizer]
+Algorithm that updates model weights based on gradients. AdamW is standard for transformers.
+
+\item[Overfitting]
+When a model performs well on training data but poorly on new data. Sign: training loss decreases while validation loss increases.
+
+\item[PAD (Padding)]
+Special token used to fill sequences to equal length for batching. Usually masked in attention. In \TryLM: \texttt{<|pad|>}.
+
+\item[Parameters]
+Learnable weights in the model. \TryLM has approximately 10.8M parameters.
+
+\item[Perplexity]
+Evaluation metric for language models. Exponential of cross-entropy loss: $\text{PPL} = \exp(\text{loss})$. Lower is better.
+
+\item[Position Encoding]
+Information added to embeddings indicating token position in the sequence. Can be learned, sinusoidal, or rotary (RoPE).
+
+\item[Pre-norm]
+Transformer variant where normalization is applied before (rather than after) attention and FFN layers. More stable training.
+
+\item[Pre-training]
+Initial training phase on large amounts of unlabeled text. Learns general language patterns.
+
+\item[Query, Key, Value (Q, K, V)]
+Three projections of the input used in attention. Query asks ``what am I looking for?'', Key says ``what do I contain?'', Value provides ``what information to pass.''
+
+\item[Residual Connection]
+Adding the input of a layer to its output: $x + f(x)$. Helps gradient flow and enables training deep networks.
+
+\item[RMSNorm]
+Simplified normalization using only root mean square (no mean centering). Computationally cheaper than LayerNorm.
+
+\item[RoPE (Rotary Position Embedding)]
+Position encoding that rotates query and key vectors based on position. Encodes relative positions naturally.
+
+\item[Sampling]
+Selecting the next token probabilistically from the model's output distribution. Contrast with greedy decoding.
+
+\item[Scaling Laws]
+Empirical relationships between model size, data size, compute, and performance. Chinchilla: optimal compute means N $\propto$ D.
+
+\item[Self-Attention]
+Attention where queries, keys, and values all come from the same sequence. The model attends to itself.
+
+\item[Softmax]
+Function converting logits to probabilities: $\text{softmax}(x_i) = \frac{\exp(x_i)}{\sum_j \exp(x_j)}$.
+
+\item[Step]
+One optimizer update. With gradient accumulation, may involve multiple forward passes.
+
+\item[SwiGLU]
+Gated activation function: $\text{SwiGLU}(x) = \text{Swish}(xW_g) \odot (xW_u)$. Outperforms GELU in language models.
+
+\item[Temperature]
+Scaling factor for logits before softmax. Higher temperature $\to$ more random; lower $\to$ more deterministic.
+
+\item[Token]
+Atomic unit of text for the model. Can be a word, subword, or character depending on tokenization.
+
+\item[Tokenizer]
+Algorithm converting text to token IDs and vice versa. \TryLM uses BPE with 16,384 vocabulary size.
+
+\item[Top-k Sampling]
+Sampling strategy that only considers the k most probable tokens. Filters out unlikely tokens.
+
+\item[Top-p (Nucleus) Sampling]
+Sampling from the smallest set of tokens whose cumulative probability exceeds p. Adapts to probability distribution shape.
+
+\item[Training Loop]
+The iterative process: forward pass $\to$ loss computation $\to$ backward pass $\to$ optimizer step.
+
+\item[Transformer]
+Neural network architecture based on self-attention. Foundation of modern language models.
+
+\item[UNK (Unknown)]
+Special token for out-of-vocabulary inputs. With BPE, rarely needed. In \TryLM: \texttt{<|unk|>}.
+
+\item[Validation]
+Evaluating model on held-out data during training. Used to detect overfitting and select best checkpoint.
+
+\item[Vocabulary]
+Set of all tokens the model can process. \TryLM uses 16,384 tokens.
+
+\item[Warmup]
+Gradually increasing learning rate at the start of training. Helps stability.
+
+\item[Weight Decay]
+Regularization adding penalty for large weights: $L_{\text{total}} = L + \lambda \|w\|^2$. AdamW applies this directly to weights.
+
+\item[Weight Tying]
+Sharing weights between input embeddings and output projection. Reduces parameters and improves quality.
+
+\end{description}
+

@@ -1,0 +1,507 @@
+% =============================================================================
+% Chapter 2: Environment Setup
+% =============================================================================
+\chapter{Environment Setup}
+\label{ch:environment-setup}
+
+\begin{objectives}
+    \item Install Python and the \texttt{uv} package manager
+    \item Clone and set up the TryLM repository
+    \item Understand the project structure
+    \item Run basic CLI commands
+    \item (Optional) Configure GPU acceleration
+\end{objectives}
+
+% -----------------------------------------------------------------------------
+\section{Prerequisites}
+% -----------------------------------------------------------------------------
+
+Before we begin, ensure you have:
+
+\begin{itemize}
+    \item A computer running Linux, macOS, or Windows (with WSL2)
+    \item Python 3.11 or later
+    \item Basic familiarity with the command line
+    \item (Optional) An NVIDIA GPU with CUDA support for faster training
+\end{itemize}
+
+% -----------------------------------------------------------------------------
+\section{Installing the uv Package Manager}
+% -----------------------------------------------------------------------------
+
+\TryLM uses \texttt{uv}, a modern, fast Python package manager written in Rust. It replaces traditional tools like \texttt{pip} and \texttt{virtualenv} with a single, unified tool.
+
+\subsection{Why uv?}
+
+\begin{itemize}
+    \item \textbf{Speed}: 10--100x faster than pip
+    \item \textbf{Reliability}: Deterministic dependency resolution
+    \item \textbf{Simplicity}: Single tool for environments and packages
+\end{itemize}
+
+\subsection{Installation}
+
+Install \texttt{uv} using the official installer:
+
+\begin{lstlisting}[style=shell]
+# Linux/macOS
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows (PowerShell)
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+\end{lstlisting}
+
+After installation, restart your terminal and verify:
+
+\begin{lstlisting}[style=shell]
+uv --version
+# uv 0.4.x
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\section{Getting the TryLM Code}
+% -----------------------------------------------------------------------------
+
+\subsection{Clone the Repository}
+
+\begin{lstlisting}[style=shell]
+git clone https://github.com/your-repo/trylm.git
+cd trylm
+\end{lstlisting}
+
+\subsection{Install Dependencies}
+
+Use \texttt{uv} to create a virtual environment and install all dependencies:
+
+\begin{lstlisting}[style=shell]
+uv sync
+\end{lstlisting}
+
+This command:
+\begin{enumerate}
+    \item Creates a \texttt{.venv} virtual environment
+    \item Reads \texttt{pyproject.toml} for dependency specifications
+    \item Installs all required packages
+\end{enumerate}
+
+\begin{note}
+All \TryLM commands use \texttt{uv run} to execute within the virtual environment. You don't need to manually activate the environment.
+\end{note}
+
+% -----------------------------------------------------------------------------
+\section{Project Structure}
+% -----------------------------------------------------------------------------
+
+Let's explore the \TryLM codebase:
+
+\begin{lstlisting}[style=shell, numbers=none]
+trylm/
+|-- pyproject.toml        # Project configuration and dependencies
+|-- configs/
+|   `-- tiny_stories.yaml # Default training configuration
+|-- src/
+|   `-- trylm/
+|       |-- __init__.py   # Package init
+|       |-- cli.py        # Command-line interface
+|       |-- config.py     # Configuration dataclasses
+|       |-- model.py      # GPT model architecture
+|       |-- tokenizer.py  # BPE tokenizer
+|       |-- data.py       # Dataset and dataloaders
+|       |-- trainer.py    # Training loop
+|       |-- generate.py   # Text generation
+|       `-- evaluate.py   # Evaluation metrics
+|-- data/                 # Tokenizer and cached data
+|-- checkpoints/          # Saved model checkpoints
+`-- notebooks/            # Jupyter notebooks
+\end{lstlisting}
+
+\subsection{Key Files}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lp{8cm}}
+\toprule
+\textbf{File} & \textbf{Purpose} \\
+\midrule
+\texttt{model.py} & The GPT model: embeddings, attention, feed-forward layers, and the complete architecture \\
+\texttt{tokenizer.py} & BPE tokenizer training and text encoding/decoding \\
+\texttt{data.py} & Dataset loading, tokenization, and batch preparation \\
+\texttt{trainer.py} & Training loop with optimization, checkpointing, and logging \\
+\texttt{generate.py} & Text generation with various sampling strategies \\
+\texttt{config.py} & Configuration dataclasses for tokenizer, model, and training \\
+\texttt{cli.py} & Typer-based command-line interface \\
+\bottomrule
+\end{tabular}
+\caption{Key source files in the TryLM project}
+\end{table}
+
+% -----------------------------------------------------------------------------
+\section{The Command-Line Interface}
+% -----------------------------------------------------------------------------
+
+\TryLM provides a command-line interface (CLI) for all operations. The entry point is the \texttt{trylm} command.
+
+\subsection{Available Commands}
+
+\begin{lstlisting}[style=shell]
+uv run trylm --help
+\end{lstlisting}
+
+This shows:
+\begin{lstlisting}[style=shell, numbers=none]
+Usage: trylm [OPTIONS] COMMAND [ARGS]...
+
+Commands:
+  tokenizer  Tokenizer training and encoding
+  train      Train the language model
+  generate   Generate text from a trained model
+  eval       Evaluate model perplexity
+  info       Display model information
+  init       Initialize a configuration file
+\end{lstlisting}
+
+\subsection{Your First Command}
+
+Let's check the default model configuration:
+
+\begin{lstlisting}[style=shell]
+uv run trylm info
+\end{lstlisting}
+
+Output:
+\begin{lstlisting}[style=shell, numbers=none]
+TryLM Model Configuration
+==========================
+Vocabulary size:  16,384
+Context length:   512
+Model dimension:  384
+Attention heads:  6
+Layers:           6
+FFN dimension:    1,536
+
+Estimated parameters: ~10.8M
+\end{lstlisting}
+
+\begin{keypoint}
+The \texttt{trylm info} command shows the model architecture without loading any weights. It's useful for understanding the configuration before training.
+\end{keypoint}
+
+% -----------------------------------------------------------------------------
+\section{Configuration System}
+% -----------------------------------------------------------------------------
+
+\TryLM uses a hierarchical configuration system defined in \texttt{config.py}.
+
+\subsection{Configuration Dataclasses}
+
+Three dataclasses define the complete configuration:
+
+\begin{lstlisting}[style=python, caption={Configuration structure from config.py}]
+@dataclass
+class TokenizerConfig:
+    vocab_size: int = 16384
+    min_frequency: int = 2
+    special_tokens: list[str] = field(default_factory=lambda: [
+        "<|pad|>", "<|eos|>", "<|bos|>", "<|unk|>"
+    ])
+    save_path: Path = Path("data/tokenizer")
+
+@dataclass
+class ModelConfig:
+    vocab_size: int = 16384
+    n_layers: int = 6
+    n_heads: int = 6
+    d_model: int = 384
+    d_ff: int = 1536
+    context_length: int = 512
+    dropout: float = 0.1
+    bias: bool = False
+
+@dataclass
+class TrainConfig:
+    batch_size: int = 64
+    learning_rate: float = 3e-4
+    max_steps: int = 10000
+    # ... more options
+\end{lstlisting}
+
+\subsection{YAML Configuration Files}
+
+Configuration can be loaded from YAML files. Here's the default \texttt{tiny\_stories.yaml}:
+
+\begin{lstlisting}[style=yaml, caption={configs/tiny\_stories.yaml}]
+tokenizer:
+  vocab_size: 16384
+  min_frequency: 2
+
+model:
+  vocab_size: 16384
+  n_layers: 6
+  n_heads: 6
+  d_model: 384
+  d_ff: 1536
+  context_length: 512
+  dropout: 0.1
+  bias: false
+
+train:
+  dataset_name: roneneldan/TinyStories
+  batch_size: 64
+  gradient_accumulation_steps: 4
+  learning_rate: 0.0003
+  max_steps: 10000
+  warmup_steps: 100
+  eval_interval: 500
+  checkpoint_dir: checkpoints
+  mixed_precision: true
+  compile: true
+  seed: 42
+\end{lstlisting}
+
+\subsection{CLI Overrides}
+
+Any configuration value can be overridden via command-line arguments:
+
+\begin{lstlisting}[style=shell]
+# Use config file with overrides
+uv run trylm train --config configs/tiny_stories.yaml \
+    --batch-size 32 \
+    --max-steps 5000
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\section{Quick Test: Training the Tokenizer}
+% -----------------------------------------------------------------------------
+
+Let's verify everything works by training a tokenizer:
+
+\begin{lstlisting}[style=shell]
+uv run trylm tokenizer train --vocab-size 16384
+\end{lstlisting}
+
+This command:
+\begin{enumerate}
+    \item Downloads the TinyStories dataset (first time only)
+    \item Trains a BPE tokenizer on the text
+    \item Saves the tokenizer to \texttt{data/tokenizer/}
+\end{enumerate}
+
+Expected output:
+\begin{lstlisting}[style=shell, numbers=none]
+Training tokenizer on roneneldan/TinyStories...
+Processing 2,119,719 examples...
+Training BPE tokenizer with vocab_size=16384...
+Tokenizer saved to data/tokenizer
+\end{lstlisting}
+
+Now test encoding some text:
+
+\begin{lstlisting}[style=shell]
+uv run trylm tokenizer encode "Once upon a time"
+\end{lstlisting}
+
+Output:
+\begin{lstlisting}[style=shell, numbers=none]
+Text: Once upon a time
+Token IDs: [1, 4521, 2378, 263, 1159, 2]
+Tokens: ['<|bos|>', 'Once', ' upon', ' a', ' time', '<|eos|>']
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\section{GPU Setup (Optional)}
+% -----------------------------------------------------------------------------
+
+Training is significantly faster on a GPU. \TryLM automatically detects and uses available GPUs.
+
+\subsection{NVIDIA CUDA}
+
+For NVIDIA GPUs, ensure you have:
+\begin{enumerate}
+    \item NVIDIA driver installed
+    \item CUDA toolkit 11.8 or later
+    \item cuDNN library
+\end{enumerate}
+
+Verify CUDA availability in Python:
+
+\begin{lstlisting}[style=python]
+import torch
+print(torch.cuda.is_available())  # True
+print(torch.cuda.get_device_name(0))  # e.g., "NVIDIA GeForce RTX 3080"
+\end{lstlisting}
+
+\subsection{Apple Silicon (MPS)}
+
+On Apple Silicon Macs (M1/M2/M3), PyTorch uses the Metal Performance Shaders (MPS) backend:
+
+\begin{lstlisting}[style=python]
+import torch
+print(torch.backends.mps.is_available())  # True on Apple Silicon
+\end{lstlisting}
+
+\subsection{Device Selection}
+
+\TryLM automatically selects the best available device:
+
+\begin{lstlisting}[style=python, caption={Device selection from cli.py}]
+def get_device() -> str:
+    if torch.cuda.is_available():
+        return "cuda"
+    elif torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+\end{lstlisting}
+
+\begin{note}
+Training on CPU is possible but slow. A 10M parameter model takes:
+\begin{itemize}
+    \item GPU (RTX 3080): $\sim$1 hour for 10k steps
+    \item CPU (modern): $\sim$10+ hours for 10k steps
+\end{itemize}
+\end{note}
+
+% -----------------------------------------------------------------------------
+\section{Weights \& Biases Setup (Optional)}
+% -----------------------------------------------------------------------------
+
+\TryLM integrates with Weights \& Biases (W\&B) for experiment tracking.
+
+\subsection{Create an Account}
+
+Sign up at \url{https://wandb.ai} (free for personal use).
+
+\subsection{Login}
+
+\begin{lstlisting}[style=shell]
+uv run wandb login
+\end{lstlisting}
+
+This prompts you to enter your API key.
+
+\subsection{Verify}
+
+When you train with W\&B enabled, you'll see:
+\begin{lstlisting}[style=shell, numbers=none]
+wandb: Syncing run trylm-tiny-stories
+wandb: View project at https://wandb.ai/your-username/trylm
+\end{lstlisting}
+
+W\&B provides:
+\begin{itemize}
+    \item Real-time loss and metric plots
+    \item Hyperparameter tracking
+    \item Model checkpoint versioning
+    \item Experiment comparison
+\end{itemize}
+
+% -----------------------------------------------------------------------------
+\section{Development Tools}
+% -----------------------------------------------------------------------------
+
+For exploring and modifying the code, we recommend:
+
+\subsection{IDE/Editor}
+
+\begin{itemize}
+    \item \textbf{VS Code} with Python extension
+    \item \textbf{PyCharm} (Community or Professional)
+    \item \textbf{Neovim} with LSP support
+\end{itemize}
+
+\subsection{Useful Commands}
+
+\begin{lstlisting}[style=shell]
+# Run type checking
+uv run mypy src/trylm
+
+# Run tests (if available)
+uv run pytest
+
+# Format code
+uv run ruff format src/
+
+# Lint code
+uv run ruff check src/
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\section{Troubleshooting}
+% -----------------------------------------------------------------------------
+
+\begin{pitfall}[title=Common Issues]
+\textbf{``Command not found: uv''}
+
+Ensure \texttt{uv} is in your PATH. Restart your terminal after installation.
+
+\textbf{``CUDA out of memory''}
+
+Reduce batch size: \texttt{--batch-size 16} or disable mixed precision.
+
+\textbf{``Module not found: trylm''}
+
+Run \texttt{uv sync} to install the package in development mode.
+
+\textbf{Slow download of TinyStories}
+
+The dataset is $\sim$500MB. First download may take several minutes.
+\end{pitfall}
+
+% -----------------------------------------------------------------------------
+\section{Exercises}
+% -----------------------------------------------------------------------------
+
+\begin{exercise}
+\textbf{Explore the CLI}
+
+Run each of these commands and observe the output:
+\begin{lstlisting}[style=shell, numbers=none]
+uv run trylm --help
+uv run trylm tokenizer --help
+uv run trylm train --help
+uv run trylm generate --help
+\end{lstlisting}
+What options are available for each command?
+\end{exercise}
+
+\begin{exercise}
+\textbf{Examine the Project Structure}
+
+Open \texttt{src/trylm/model.py} and identify:
+\begin{enumerate}
+    \item The main model class
+    \item The attention mechanism class
+    \item The feed-forward network class
+\end{enumerate}
+Don't worry about understanding the code yet---just get familiar with the structure.
+\end{exercise}
+
+\begin{exercise}
+\textbf{Configuration Exploration}
+
+Create a custom configuration file:
+\begin{lstlisting}[style=shell, numbers=none]
+uv run trylm init --output my_config.yaml
+\end{lstlisting}
+Open the file and identify:
+\begin{enumerate}
+    \item How many transformer layers are configured?
+    \item What is the vocabulary size?
+    \item What is the learning rate?
+\end{enumerate}
+\end{exercise}
+
+% -----------------------------------------------------------------------------
+\section{Summary}
+% -----------------------------------------------------------------------------
+
+\begin{summary}
+    \item \texttt{uv} is a fast, modern Python package manager
+    \item All commands use \texttt{uv run trylm <command>}
+    \item The project follows a clean \texttt{src/} layout with separate modules for each concern
+    \item Configuration uses dataclasses and YAML files
+    \item CLI arguments can override configuration values
+    \item GPU acceleration is automatic when available
+    \item W\&B provides optional experiment tracking
+\end{summary}
+
+In the next chapter, we'll dive into tokenization---the critical first step in processing text for language models.

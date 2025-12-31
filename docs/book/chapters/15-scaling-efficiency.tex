@@ -1,0 +1,137 @@
+% =============================================================================
+% Chapter 15: Scaling and Efficiency
+% =============================================================================
+\chapter{Scaling and Efficiency}
+\label{ch:scaling-efficiency}
+
+\begin{objectives}
+    \item Understand scaling laws for language models
+    \item Calculate compute requirements
+    \item Optimize training efficiency
+    \item Know when small models are sufficient
+\end{objectives}
+
+% -----------------------------------------------------------------------------
+\section{Scaling Laws}
+% -----------------------------------------------------------------------------
+
+\subsection{The Chinchilla Insight}
+
+Research by DeepMind (Hoffmann et al., 2022) established that:
+
+\begin{equation}
+\text{Optimal training} \implies N \propto D
+\end{equation}
+
+where $N$ is parameter count and $D$ is training data tokens.
+
+\begin{keypoint}
+For compute-optimal training, \textbf{scale data and parameters equally}. A 10M parameter model should train on $\sim$200M tokens; a 1B parameter model on $\sim$20B tokens.
+\end{keypoint}
+
+\subsection{Loss Scaling}
+
+Language model loss follows a power law:
+\begin{equation}
+L(N, D) \approx \left(\frac{N_c}{N}\right)^{\alpha_N} + \left(\frac{D_c}{D}\right)^{\alpha_D} + L_\infty
+\end{equation}
+
+\begin{itemize}
+    \item More parameters $\to$ lower loss
+    \item More data $\to$ lower loss
+    \item Diminishing returns in both directions
+\end{itemize}
+
+% -----------------------------------------------------------------------------
+\section{Compute Requirements}
+% -----------------------------------------------------------------------------
+
+\subsection{FLOPs per Token}
+
+For a transformer with $N$ parameters:
+\begin{equation}
+\text{FLOPs per token} \approx 6N \text{ (forward + backward)}
+\end{equation}
+
+\subsection{TryLM Compute}
+
+For \TryLM ($N = 10.8$M, batch=256, steps=10K):
+\begin{align*}
+\text{Tokens} &= 256 \times 512 \times 10000 = 1.3\text{B} \\
+\text{FLOPs} &= 6 \times 10.8\text{M} \times 1.3\text{B} = 84 \text{ TFLOPs}
+\end{align*}
+
+On an RTX 3080 ($\sim$30 TFLOPS fp16):
+\[
+\text{Time} \approx \frac{84 \text{ TFLOPs}}{30 \text{ TFLOPS}} \approx 45 \text{ minutes}
+\]
+
+% -----------------------------------------------------------------------------
+\section{Efficiency Optimizations}
+% -----------------------------------------------------------------------------
+
+\subsection{torch.compile}
+
+\begin{lstlisting}[style=python]
+model = GPT(config)
+model = torch.compile(model)  # 1.5-2x speedup
+\end{lstlisting}
+
+\texttt{torch.compile} fuses operations and optimizes GPU usage.
+
+\subsection{Mixed Precision}
+
+Float16 computation is 2x faster and uses half the memory.
+
+\subsection{Flash Attention}
+
+For longer sequences, Flash Attention provides $O(n)$ memory instead of $O(n^2)$:
+\begin{lstlisting}[style=python]
+from torch.nn.functional import scaled_dot_product_attention
+
+# PyTorch 2.0+ automatically uses Flash Attention when available
+attn = scaled_dot_product_attention(q, k, v, is_causal=True)
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\section{When Small Models Suffice}
+% -----------------------------------------------------------------------------
+
+\TryLM shows that small models can be effective for specific domains:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Task} & \textbf{Model Size} & \textbf{Notes} \\
+\midrule
+Simple text completion & 10--100M & Domain-specific \\
+Code completion & 100M--1B & Syntax-focused \\
+General knowledge & 7B+ & Broad training data \\
+Complex reasoning & 70B+ & Emergent capabilities \\
+\bottomrule
+\end{tabular}
+\caption{Model size requirements by task}
+\end{table}
+
+\begin{keypoint}
+\textbf{Small models excel when}:
+\begin{enumerate}
+    \item The domain is narrow (children's stories)
+    \item The task is well-defined (complete a sentence)
+    \item Latency matters (real-time generation)
+    \item Resources are limited (edge devices)
+\end{enumerate}
+\end{keypoint}
+
+% -----------------------------------------------------------------------------
+\section{Summary}
+% -----------------------------------------------------------------------------
+
+\begin{summary}
+    \item \textbf{Scaling laws}: $L \propto N^{-\alpha} + D^{-\beta}$
+    \item \textbf{Chinchilla optimal}: Train data tokens $\approx 20 \times$ parameters
+    \item \textbf{FLOPs}: $\approx 6N$ per token (forward + backward)
+    \item \textbf{Optimizations}: torch.compile, mixed precision, Flash Attention
+    \item \textbf{Small models work} for narrow domains and specific tasks
+\end{summary}

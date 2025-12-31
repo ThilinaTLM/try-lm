@@ -1,0 +1,95 @@
+% =============================================================================
+% Appendix B: Advanced Generation Techniques
+% =============================================================================
+\chapter{Advanced Generation Techniques}
+\label{app:advanced-generation}
+
+This appendix covers generation methods beyond those implemented in \TryLM.
+
+% -----------------------------------------------------------------------------
+\section{Beam Search}
+% -----------------------------------------------------------------------------
+
+Instead of sampling one token at a time, beam search maintains multiple hypotheses:
+
+\begin{algorithm}[H]
+\caption{Beam Search}
+\begin{algorithmic}[1]
+\Require beam\_width $k$
+\State beams $\gets$ [(prompt, 0.0)]  \Comment{(sequence, log\_prob)}
+\For{each position}
+    \State candidates $\gets$ []
+    \For{each beam in beams}
+        \State next\_logprobs $\gets$ model(beam.sequence)
+        \State top\_k $\gets$ top-k tokens from next\_logprobs
+        \For{each token in top\_k}
+            \State candidates.append((beam + token, beam.score + log\_prob))
+        \EndFor
+    \EndFor
+    \State beams $\gets$ top-k candidates by score
+\EndFor
+\State \Return beam with highest score
+\end{algorithmic}
+\end{algorithm}
+
+\textbf{Pros}: More likely to find high-probability sequences.
+
+\textbf{Cons}: Can be repetitive; less diverse than sampling.
+
+% -----------------------------------------------------------------------------
+\section{Contrastive Decoding}
+% -----------------------------------------------------------------------------
+
+Uses a smaller ``amateur'' model to improve a larger ``expert'' model:
+
+\begin{equation}
+\log p_{\text{final}}(x) = \log p_{\text{expert}}(x) - \alpha \log p_{\text{amateur}}(x)
+\end{equation}
+
+The idea: subtract out generic patterns that both models predict, amplifying what only the expert knows.
+
+% -----------------------------------------------------------------------------
+\section{Speculative Decoding}
+% -----------------------------------------------------------------------------
+
+Uses a small ``draft'' model to generate candidates, then verifies with the large model:
+
+\begin{enumerate}
+    \item Draft model generates $k$ tokens quickly
+    \item Large model scores all $k$ tokens in one forward pass
+    \item Accept tokens until first rejection
+    \item Resample from large model and repeat
+\end{enumerate}
+
+\textbf{Benefit}: 2--3x speedup when draft model is accurate.
+
+% -----------------------------------------------------------------------------
+\section{Classifier-Free Guidance}
+% -----------------------------------------------------------------------------
+
+Amplifies the effect of a prompt by contrasting with unconditional generation:
+
+\begin{equation}
+\log p_{\text{guided}} = \log p_{\text{uncond}} + \gamma(\log p_{\text{cond}} - \log p_{\text{uncond}})
+\end{equation}
+
+Higher $\gamma$ makes generation more faithful to the prompt.
+
+% -----------------------------------------------------------------------------
+\section{Constrained Generation}
+% -----------------------------------------------------------------------------
+
+Force generation to satisfy constraints:
+
+\begin{itemize}
+    \item \textbf{JSON mode}: Only allow valid JSON syntax
+    \item \textbf{Grammar constraints}: Follow a formal grammar
+    \item \textbf{Keyword inclusion}: Ensure certain words appear
+\end{itemize}
+
+\begin{lstlisting}[style=python]
+def constrained_sample(logits, allowed_tokens):
+    mask = torch.full_like(logits, float("-inf"))
+    mask[allowed_tokens] = 0
+    return F.softmax(logits + mask, dim=-1)
+\end{lstlisting}

@@ -1,0 +1,300 @@
+% =============================================================================
+% Appendix C: Debugging Guide
+% =============================================================================
+\chapter{Debugging Guide}
+\label{app:debugging}
+
+This appendix provides solutions to common issues encountered when training language models.
+
+% -----------------------------------------------------------------------------
+\section{NaN Loss}
+% -----------------------------------------------------------------------------
+
+\textbf{Symptoms}: Loss becomes \texttt{nan} or \texttt{inf} during training.
+
+\subsection{Causes}
+
+\begin{enumerate}
+    \item \textbf{Learning rate too high}: Gradients explode
+    \item \textbf{No gradient clipping}: Large gradients cause overflow
+    \item \textbf{Numerical instability in attention}: $\exp$ overflow in softmax
+    \item \textbf{Division by zero}: Usually in normalization layers
+    \item \textbf{Bad data}: Infinite or NaN values in input
+\end{enumerate}
+
+\subsection{Solutions}
+
+\begin{lstlisting}[style=python]
+# 1. Reduce learning rate
+learning_rate = 1e-4  # Instead of 3e-4
+
+# 2. Enable gradient clipping
+torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+# 3. Check for NaN in gradients
+for name, param in model.named_parameters():
+    if param.grad is not None and torch.isnan(param.grad).any():
+        print(f"NaN gradient in {name}")
+
+# 4. Check data for NaN
+assert not torch.isnan(input_ids).any(), "NaN in input"
+
+# 5. Add epsilon to divisions
+rms = torch.sqrt(torch.mean(x ** 2, dim=-1, keepdim=True) + 1e-6)
+\end{lstlisting}
+
+\subsection{Debugging Script}
+
+\begin{lstlisting}[style=python]
+def check_model_health(model, batch):
+    """Check for numerical issues."""
+    model.eval()
+    with torch.no_grad():
+        output = model(**batch)
+
+        # Check loss
+        if torch.isnan(output["loss"]) or torch.isinf(output["loss"]):
+            print("WARNING: Loss is NaN or Inf")
+
+        # Check logits
+        logits = output["logits"]
+        print(f"Logits - min: {logits.min():.2f}, max: {logits.max():.2f}")
+
+        if torch.isnan(logits).any():
+            print("WARNING: NaN in logits")
+
+        # Check for extreme values
+        if logits.abs().max() > 100:
+            print("WARNING: Extreme logit values")
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\section{Loss Not Decreasing}
+% -----------------------------------------------------------------------------
+
+\textbf{Symptoms}: Loss stays flat or decreases very slowly.
+
+\subsection{Causes and Solutions}
+
+\begin{enumerate}
+    \item \textbf{Learning rate too low}:
+    \begin{lstlisting}[style=python]
+# Try increasing learning rate
+learning_rate = 1e-3  # Instead of 1e-4
+    \end{lstlisting}
+
+    \item \textbf{Bug in data pipeline}:
+    \begin{lstlisting}[style=python]
+# Verify data looks correct
+batch = next(iter(train_loader))
+print(tokenizer.decode(batch["input_ids"][0]))
+print(f"Labels: {batch['labels'][0][:20]}")
+    \end{lstlisting}
+
+    \item \textbf{Labels not shifted correctly}:
+    \begin{lstlisting}[style=python]
+# Correct shift operation
+input_ids = tokens[:-1]
+labels = tokens[1:]
+    \end{lstlisting}
+
+    \item \textbf{Model too small}:
+    \begin{lstlisting}[style=python]
+# Increase capacity
+config = ModelConfig(
+    n_layers=8,    # Was 6
+    d_model=512,   # Was 384
+)
+    \end{lstlisting}
+
+    \item \textbf{Optimizer not updating}:
+    \begin{lstlisting}[style=python]
+# Ensure backward and step are called
+loss.backward()
+optimizer.step()
+optimizer.zero_grad()  # Don't forget this!
+    \end{lstlisting}
+\end{enumerate}
+
+% -----------------------------------------------------------------------------
+\section{Out of Memory (OOM)}
+% -----------------------------------------------------------------------------
+
+\textbf{Symptoms}: \texttt{CUDA out of memory} error.
+
+\subsection{Solutions}
+
+\begin{enumerate}
+    \item \textbf{Reduce batch size}:
+    \begin{lstlisting}[style=python]
+batch_size = 32  # Instead of 64
+    \end{lstlisting}
+
+    \item \textbf{Use gradient accumulation}:
+    \begin{lstlisting}[style=python]
+# Effective batch = 64, actual batch = 16
+accumulation_steps = 4
+batch_size = 16
+
+for i, batch in enumerate(train_loader):
+    loss = model(**batch)["loss"] / accumulation_steps
+    loss.backward()
+
+    if (i + 1) % accumulation_steps == 0:
+        optimizer.step()
+        optimizer.zero_grad()
+    \end{lstlisting}
+
+    \item \textbf{Reduce context length}:
+    \begin{lstlisting}[style=python]
+context_length = 256  # Instead of 512
+    \end{lstlisting}
+
+    \item \textbf{Enable mixed precision}:
+    \begin{lstlisting}[style=python]
+scaler = torch.cuda.amp.GradScaler()
+with torch.cuda.amp.autocast():
+    loss = model(**batch)["loss"]
+    \end{lstlisting}
+
+    \item \textbf{Clear cache}:
+    \begin{lstlisting}[style=python]
+torch.cuda.empty_cache()
+    \end{lstlisting}
+\end{enumerate}
+
+\subsection{Memory Estimation}
+
+\begin{equation}
+\text{Memory} \approx 4 \times N + B \times L^2 \times H
+\end{equation}
+
+where:
+\begin{itemize}
+    \item $N$ = parameters (in float32 = 4 bytes each)
+    \item $B$ = batch size
+    \item $L$ = sequence length
+    \item $H$ = number of heads (for attention matrices)
+\end{itemize}
+
+% -----------------------------------------------------------------------------
+\section{Overfitting}
+% -----------------------------------------------------------------------------
+
+\textbf{Symptoms}: Training loss decreases but validation loss increases.
+
+\subsection{Solutions}
+
+\begin{enumerate}
+    \item \textbf{Add dropout}:
+    \begin{lstlisting}[style=python]
+config = ModelConfig(dropout=0.2)  # Was 0.1
+    \end{lstlisting}
+
+    \item \textbf{Use more data}: TinyStories has 2.1M stories; ensure you're using all of it.
+
+    \item \textbf{Reduce model size}:
+    \begin{lstlisting}[style=python]
+config = ModelConfig(
+    n_layers=4,    # Was 6
+    d_model=256,   # Was 384
+)
+    \end{lstlisting}
+
+    \item \textbf{Add weight decay}:
+    \begin{lstlisting}[style=python]
+optimizer = AdamW(model.parameters(), weight_decay=0.1)
+    \end{lstlisting}
+
+    \item \textbf{Early stopping}:
+    \begin{lstlisting}[style=python]
+if val_loss > best_val_loss:
+    patience_counter += 1
+    if patience_counter >= patience:
+        print("Early stopping!")
+        break
+    \end{lstlisting}
+\end{enumerate}
+
+% -----------------------------------------------------------------------------
+\section{Repetitive Generation}
+% -----------------------------------------------------------------------------
+
+\textbf{Symptoms}: Model generates the same words or phrases repeatedly.
+
+\subsection{Solutions}
+
+\begin{enumerate}
+    \item \textbf{Increase temperature}:
+    \begin{lstlisting}[style=python]
+temperature = 1.0  # Instead of 0.7
+    \end{lstlisting}
+
+    \item \textbf{Use repetition penalty}:
+    \begin{lstlisting}[style=python]
+def apply_repetition_penalty(logits, generated, penalty=1.2):
+    for token in set(generated):
+        logits[token] /= penalty
+    return logits
+    \end{lstlisting}
+
+    \item \textbf{Use top-p sampling}:
+    \begin{lstlisting}[style=python]
+top_p = 0.9  # Nucleus sampling
+    \end{lstlisting}
+
+    \item \textbf{Train longer}: Model may not have learned enough diversity.
+\end{enumerate}
+
+% -----------------------------------------------------------------------------
+\section{Slow Training}
+% -----------------------------------------------------------------------------
+
+\textbf{Symptoms}: Training takes longer than expected.
+
+\subsection{Solutions}
+
+\begin{enumerate}
+    \item \textbf{Use torch.compile}:
+    \begin{lstlisting}[style=python]
+model = torch.compile(model)  # 1.5-2x speedup
+    \end{lstlisting}
+
+    \item \textbf{Enable mixed precision}:
+    \begin{lstlisting}[style=python]
+with torch.cuda.amp.autocast():
+    loss = model(**batch)["loss"]
+    \end{lstlisting}
+
+    \item \textbf{Increase batch size}: Larger batches use GPU more efficiently.
+
+    \item \textbf{Use multiple workers}:
+    \begin{lstlisting}[style=python]
+DataLoader(dataset, num_workers=4, pin_memory=True)
+    \end{lstlisting}
+
+    \item \textbf{Profile your code}:
+    \begin{lstlisting}[style=python]
+with torch.profiler.profile() as prof:
+    model(**batch)
+print(prof.key_averages().table())
+    \end{lstlisting}
+\end{enumerate}
+
+% -----------------------------------------------------------------------------
+\section{Debugging Checklist}
+% -----------------------------------------------------------------------------
+
+\begin{enumerate}
+    \item[$\square$] Data loads correctly (decode and inspect samples)
+    \item[$\square$] Labels are shifted by one position
+    \item[$\square$] Attention mask matches padding
+    \item[$\square$] Model parameters are on correct device
+    \item[$\square$] Optimizer is updating parameters
+    \item[$\square$] Learning rate schedule is correct
+    \item[$\square$] Gradient clipping is enabled
+    \item[$\square$] Loss is decreasing (not flat or NaN)
+    \item[$\square$] Validation loss is tracked
+    \item[$\square$] Checkpoints are being saved
+\end{enumerate}
+

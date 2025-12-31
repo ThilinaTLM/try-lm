@@ -1,0 +1,560 @@
+% =============================================================================
+% Chapter 6: Self-Attention
+% =============================================================================
+\chapter{Self-Attention: The Heart of Transformers}
+\label{ch:self-attention}
+
+\begin{objectives}
+    \item Understand the intuition behind self-attention
+    \item Master Query, Key, and Value matrices
+    \item Compute scaled dot-product attention step by step
+    \item Understand causal masking for autoregressive models
+    \item Learn multi-head attention and why it's useful
+    \item Understand Rotary Position Embeddings (RoPE)
+\end{objectives}
+
+% -----------------------------------------------------------------------------
+\section{The Attention Intuition}
+% -----------------------------------------------------------------------------
+
+Self-attention is the core innovation of the Transformer architecture. But what problem does it solve?
+
+\subsection{The Challenge of Context}
+
+Consider the sentence: ``The cat sat on the mat because \textbf{it} was tired.''
+
+To understand what ``it'' refers to, we need to look at earlier words in the sentence. In this case, ``it'' refers to ``cat.''
+
+Traditional sequential models (RNNs) process text one word at a time, making it hard to connect distant words. Self-attention solves this by allowing \textbf{every position to directly attend to every other position}.
+
+\begin{keypoint}
+Self-attention lets each token ``look at'' all other tokens in the sequence and decide which ones are relevant. It's like having a direct communication channel between any two positions.
+\end{keypoint}
+
+\subsection{Attention as Weighted Retrieval}
+
+Think of attention as a soft lookup in a database:
+\begin{enumerate}
+    \item You have a \textbf{query}: ``What information do I need?''
+    \item The database has \textbf{keys}: ``Here's what each entry is about''
+    \item Each entry has a \textbf{value}: ``Here's the actual content''
+    \item You compare your query to all keys, then retrieve a weighted sum of values
+\end{enumerate}
+
+% -----------------------------------------------------------------------------
+\section{Query, Key, and Value}
+% -----------------------------------------------------------------------------
+
+Self-attention uses three linear projections: Query ($Q$), Key ($K$), and Value ($V$).
+
+\subsection{The Three Projections}
+
+Given input embeddings $X \in \mathbb{R}^{n \times d}$ (where $n$ is sequence length and $d$ is dimension):
+
+\begin{align}
+Q &= X W^Q \quad \text{(Query: ``What am I looking for?'')} \\
+K &= X W^K \quad \text{(Key: ``What do I contain?'')} \\
+V &= X W^V \quad \text{(Value: ``What information do I provide?'')}
+\end{align}
+
+where $W^Q, W^K, W^V \in \mathbb{R}^{d \times d}$ are learned weight matrices.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    box/.style={rectangle, draw, rounded corners, minimum width=1.5cm, minimum height=0.8cm, fill=blue!10},
+    proj/.style={rectangle, draw, minimum width=1cm, minimum height=0.8cm},
+    arrow/.style={-{Stealth[length=2mm]}, thick},
+]
+    % Input
+    \node[box, minimum width=2.5cm] (x) at (0, 0) {Input $X$};
+
+    % Projections
+    \node[proj, fill=red!20] (wq) at (-2, -1.5) {$W^Q$};
+    \node[proj, fill=green!20] (wk) at (0, -1.5) {$W^K$};
+    \node[proj, fill=blue!20] (wv) at (2, -1.5) {$W^V$};
+
+    % Outputs
+    \node[box, fill=red!10] (q) at (-2, -3) {$Q$};
+    \node[box, fill=green!10] (k) at (0, -3) {$K$};
+    \node[box, fill=blue!10] (v) at (2, -3) {$V$};
+
+    % Arrows
+    \draw[arrow] (x) -- (-2, -0.5) -- (wq);
+    \draw[arrow] (x) -- (wk);
+    \draw[arrow] (x) -- (2, -0.5) -- (wv);
+    \draw[arrow] (wq) -- (q);
+    \draw[arrow] (wk) -- (k);
+    \draw[arrow] (wv) -- (v);
+\end{tikzpicture}
+\caption{The input is projected into three separate representations: Query, Key, and Value}
+\label{fig:qkv-projection}
+\end{figure}
+
+\subsection{In TryLM's Code}
+
+\TryLM combines Q, K, V into a single projection for efficiency:
+
+\begin{lstlisting}[style=python, caption={QKV projection from model.py}]
+class MultiHeadSelfAttention(nn.Module):
+    def __init__(self, config: ModelConfig) -> None:
+        super().__init__()
+        self.n_heads = config.n_heads
+        self.head_dim = config.d_model // config.n_heads  # 384/6 = 64
+
+        # Combined QKV projection (more efficient than separate)
+        self.qkv_proj = nn.Linear(
+            config.d_model,
+            3 * config.d_model,  # Q, K, V concatenated
+            bias=False,
+        )
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\section{Scaled Dot-Product Attention}
+% -----------------------------------------------------------------------------
+
+The core attention computation is the \textbf{scaled dot-product attention}:
+
+\begin{equation}
+\Attention(Q, K, V) = \softmax\left(\frac{QK^\top}{\sqrt{d_k}}\right) V
+\label{eq:attention}
+\end{equation}
+
+Let's break this down step by step.
+
+\subsection{Step 1: Compute Attention Scores}
+
+First, compute the dot product between each query and all keys:
+
+\[
+\text{scores} = Q K^\top
+\]
+
+The score between query $i$ and key $j$ measures how much position $i$ should attend to position $j$:
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    mat/.style={matrix of nodes, nodes={draw, minimum size=8mm, anchor=center},
+                column sep=-\pgflinewidth, row sep=-\pgflinewidth},
+]
+    % Q matrix
+    \matrix[mat] (Q) at (0, 0) {
+        $q_1$ \\
+        $q_2$ \\
+        $q_3$ \\
+        $q_4$ \\
+    };
+    \node[above=0.2cm of Q, font=\small] {$Q$};
+    \node[below=0.1cm of Q, font=\footnotesize] {\shape{4, 64}};
+
+    % K^T matrix
+    \matrix[mat] (K) at (3.5, 0) {
+        $k_1$ & $k_2$ & $k_3$ & $k_4$ \\
+    };
+    \node[above=0.2cm of K, font=\small] {$K^\top$};
+    \node[below=0.1cm of K, font=\footnotesize] {\shape{64, 4}};
+
+    % Scores matrix
+    \matrix[mat, nodes={fill=yellow!20}] (S) at (7.5, 0) {
+        $s_{11}$ & $s_{12}$ & $s_{13}$ & $s_{14}$ \\
+        $s_{21}$ & $s_{22}$ & $s_{23}$ & $s_{24}$ \\
+        $s_{31}$ & $s_{32}$ & $s_{33}$ & $s_{34}$ \\
+        $s_{41}$ & $s_{42}$ & $s_{43}$ & $s_{44}$ \\
+    };
+    \node[above=0.2cm of S, font=\small] {Scores};
+    \node[below=0.1cm of S, font=\footnotesize] {\shape{4, 4}};
+
+    % Multiplication symbols
+    \node at (1.75, 0) {$\times$};
+    \node at (5.5, 0) {$=$};
+\end{tikzpicture}
+\caption{Attention scores are computed as $QK^\top$. Each cell $s_{ij}$ is the dot product of $q_i$ and $k_j$.}
+\label{fig:attention-scores}
+\end{figure}
+
+\subsection{Step 2: Scale the Scores}
+
+We divide by $\sqrt{d_k}$ (the square root of the key dimension):
+
+\[
+\text{scaled\_scores} = \frac{Q K^\top}{\sqrt{d_k}}
+\]
+
+\begin{keypoint}[title=Why Scale?]
+Without scaling, dot products can become very large when $d_k$ is large. Large values cause softmax to produce near-one-hot outputs, which leads to vanishing gradients. Scaling keeps values in a reasonable range for stable training.
+\end{keypoint}
+
+For \TryLM with $d_k = 64$:
+\[
+\sqrt{d_k} = \sqrt{64} = 8
+\]
+
+\subsection{Step 3: Apply Softmax}
+
+Softmax converts scores to probabilities (each row sums to 1):
+
+\[
+\text{weights} = \softmax\left(\frac{Q K^\top}{\sqrt{d_k}}\right)
+\]
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    cell/.style={rectangle, draw, minimum width=1.2cm, minimum height=0.6cm, font=\small},
+]
+    % Before softmax
+    \node at (-2, 1) {\textbf{Scaled Scores:}};
+    \foreach \y/\vals in {0/{2.1, 0.3, -0.5, 1.2}} {
+        \foreach \x/\v in {0/2.1, 1.3/0.3, 2.6/-0.5, 3.9/1.2} {
+            \node[cell, fill=yellow!20] at (\x, \y) {\v};
+        }
+    }
+
+    % After softmax
+    \node at (-2, -1.2) {\textbf{After Softmax:}};
+    \foreach \y/\vals in {0/{0.48, 0.08, 0.04, 0.40}} {
+        \foreach \x/\v in {0/0.48, 1.3/0.08, 2.6/0.04, 3.9/0.40} {
+            \node[cell, fill=green!20] at (\x, -1.2) {\v};
+        }
+    }
+
+    % Arrow
+    \draw[-{Stealth}, thick] (5.5, 0.3) -- (5.5, -0.9) node[midway, right] {softmax};
+
+    % Sum annotation
+    \node[font=\footnotesize, gray] at (6.5, -1.2) {$\sum = 1.0$};
+\end{tikzpicture}
+\caption{Softmax converts scores to attention weights that sum to 1}
+\label{fig:softmax}
+\end{figure}
+
+\subsection{Step 4: Weighted Sum of Values}
+
+Finally, we compute a weighted sum of the value vectors:
+
+\[
+\text{output} = \text{weights} \cdot V
+\]
+
+Each output position is a weighted combination of all value vectors, where the weights come from the attention pattern.
+
+\subsection{Complete Example}
+
+Let's trace through a 4-token sequence with $d_k = 64$:
+
+\begin{lstlisting}[style=python]
+# Input: [batch=1, seq=4, d_model=64]
+Q = ...  # [1, 4, 64]
+K = ...  # [1, 4, 64]
+V = ...  # [1, 4, 64]
+
+# Step 1: Attention scores
+scores = Q @ K.transpose(-2, -1)  # [1, 4, 4]
+
+# Step 2: Scale
+scores = scores / math.sqrt(64)   # [1, 4, 4], values ~1
+
+# Step 3: Softmax (per row)
+weights = F.softmax(scores, dim=-1)  # [1, 4, 4], rows sum to 1
+
+# Step 4: Weighted sum of values
+output = weights @ V  # [1, 4, 64]
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\section{Causal Masking}
+% -----------------------------------------------------------------------------
+
+For autoregressive language models like GPT, there's a crucial constraint: \textbf{each position can only attend to previous positions}, not future ones.
+
+\subsection{Why Causal Masking?}
+
+During training, we process entire sequences at once. But we want the model to learn to predict the next token using only past context. If position 3 could see position 4, it would be ``cheating''---seeing the answer it's supposed to predict!
+
+\subsection{The Causal Mask}
+
+We use a \textbf{lower triangular mask} to block attention to future positions:
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    cell/.style={rectangle, draw, minimum size=8mm, font=\small},
+]
+    % Mask matrix
+    \matrix[matrix of nodes, nodes={cell}, column sep=-\pgflinewidth, row sep=-\pgflinewidth] (M) {
+        |[fill=green!30]| 1 & |[fill=red!30]| 0 & |[fill=red!30]| 0 & |[fill=red!30]| 0 \\
+        |[fill=green!30]| 1 & |[fill=green!30]| 1 & |[fill=red!30]| 0 & |[fill=red!30]| 0 \\
+        |[fill=green!30]| 1 & |[fill=green!30]| 1 & |[fill=green!30]| 1 & |[fill=red!30]| 0 \\
+        |[fill=green!30]| 1 & |[fill=green!30]| 1 & |[fill=green!30]| 1 & |[fill=green!30]| 1 \\
+    };
+
+    % Labels
+    \node[above=0.3cm of M, font=\small] {Can attend to};
+    \node[left=0.3cm of M, font=\small, rotate=90, anchor=south] {Query position};
+    \node[below=0.3cm of M, font=\small] {Key position};
+
+    % Legend
+    \node[cell, fill=green!30, right=2cm of M] (yes) {};
+    \node[right=0.1cm of yes, font=\small] {Can attend};
+    \node[cell, fill=red!30, right=4.5cm of M] (no) {};
+    \node[right=0.1cm of no, font=\small] {Blocked};
+\end{tikzpicture}
+\caption{The causal mask: position $i$ can only attend to positions $\leq i$}
+\label{fig:causal-mask}
+\end{figure}
+
+\subsection{Implementation}
+
+We implement masking by setting blocked positions to $-\infty$ before softmax:
+
+\begin{lstlisting}[style=python, caption={Causal masking from model.py}]
+# Create causal mask (upper triangular = True where we should mask)
+causal_mask = torch.triu(
+    torch.ones(context_length, context_length, dtype=torch.bool),
+    diagonal=1,
+)
+self.register_buffer("causal_mask", causal_mask)
+
+# In forward pass:
+scores = Q @ K.transpose(-2, -1) / math.sqrt(self.head_dim)
+
+# Apply causal mask: set future positions to -infinity
+scores = scores.masked_fill(
+    self.causal_mask[:seq_len, :seq_len],
+    float("-inf")
+)
+
+# Softmax converts -inf to 0
+weights = F.softmax(scores, dim=-1)
+\end{lstlisting}
+
+When softmax sees $-\infty$, it outputs 0---effectively blocking attention to those positions.
+
+% -----------------------------------------------------------------------------
+\section{Multi-Head Attention}
+% -----------------------------------------------------------------------------
+
+Instead of using one large attention head, we use multiple smaller heads in parallel.
+
+\subsection{Why Multiple Heads?}
+
+Different heads can learn to attend to different things:
+\begin{itemize}
+    \item One head might focus on syntactic relationships
+    \item Another might capture semantic similarity
+    \item Another might track pronoun references
+\end{itemize}
+
+\subsection{How It Works}
+
+For \TryLM with $d_{\text{model}} = 384$ and $n_{\text{heads}} = 6$:
+
+\begin{itemize}
+    \item Each head has dimension $d_k = 384 / 6 = 64$
+    \item All 6 heads compute attention in parallel
+    \item Outputs are concatenated back to 384 dimensions
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    box/.style={rectangle, draw, rounded corners, minimum width=1.5cm, minimum height=0.8cm, fill=blue!10, font=\small},
+    head/.style={rectangle, draw, minimum width=1cm, minimum height=0.6cm, font=\small},
+    arrow/.style={-{Stealth[length=2mm]}, thick},
+]
+    % Input
+    \node[box, minimum width=3cm] (input) at (0, 0) {Input \shape{B, S, 384}};
+
+    % Heads
+    \foreach \x/\h in {-2.5/1, -1.5/2, -0.5/3, 0.5/4, 1.5/5, 2.5/6} {
+        \node[head, fill=orange!20] (h\h) at (\x, -1.5) {H\h};
+        \draw[arrow] (input.south) -- (h\h.north);
+    }
+    \node[font=\footnotesize, gray] at (0, -2.3) {Each head: \shape{B, S, 64}};
+
+    % Concat
+    \node[box, minimum width=3cm] (concat) at (0, -3.5) {Concat \shape{B, S, 384}};
+    \foreach \h in {1,2,3,4,5,6} {
+        \draw[arrow] (h\h.south) -- (concat.north);
+    }
+
+    % Output projection
+    \node[box, minimum width=3cm] (output) at (0, -5) {Output \shape{B, S, 384}};
+    \draw[arrow] (concat) -- (output) node[midway, right] {$W^O$};
+\end{tikzpicture}
+\caption{Multi-head attention: 6 parallel attention heads, each with 64 dimensions}
+\label{fig:multi-head}
+\end{figure}
+
+\subsection{Implementation}
+
+\begin{lstlisting}[style=python, caption={Multi-head attention reshape from model.py}]
+def forward(self, x: Tensor, attention_mask: Tensor | None = None) -> Tensor:
+    batch_size, seq_len, _ = x.shape
+
+    # Project to Q, K, V
+    qkv = self.qkv_proj(x)  # [B, S, 3*384]
+
+    # Reshape to [B, S, 3, n_heads, head_dim]
+    qkv = qkv.view(batch_size, seq_len, 3, self.n_heads, self.head_dim)
+
+    # Permute to [3, B, n_heads, S, head_dim]
+    qkv = qkv.permute(2, 0, 3, 1, 4)
+
+    # Separate Q, K, V
+    q, k, v = qkv[0], qkv[1], qkv[2]  # Each: [B, n_heads, S, head_dim]
+
+    # Compute attention for all heads in parallel
+    # ... attention computation ...
+
+    # Concatenate heads: [B, S, n_heads * head_dim] = [B, S, 384]
+    output = output.transpose(1, 2).contiguous().view(batch_size, seq_len, -1)
+
+    # Final output projection
+    return self.out_proj(output)
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\section{Rotary Position Embeddings (RoPE)}
+% -----------------------------------------------------------------------------
+
+Unlike the original Transformer which added position embeddings, \TryLM uses \textbf{Rotary Position Embeddings (RoPE)}---a more modern approach.
+
+\subsection{The Problem with Learned Positions}
+
+Traditional position embeddings:
+\begin{itemize}
+    \item Fixed maximum length (can't extrapolate)
+    \item Absolute positions (position 5 always has the same embedding)
+    \item Added to token embeddings (mixed with content)
+\end{itemize}
+
+\subsection{How RoPE Works}
+
+RoPE encodes position through \textbf{rotation in the embedding space}:
+\begin{itemize}
+    \item Positions are encoded as rotation angles
+    \item Applied directly to Q and K (not added to embeddings)
+    \item Relative positions emerge naturally from the rotation difference
+\end{itemize}
+
+The key insight: when computing $q_m \cdot k_n$, the rotation at position $m$ and $n$ combine to give a function of $(m - n)$---the relative position!
+
+\begin{equation}
+\text{RoPE}(x, m) = x \cdot \cos(m\theta) + \text{rotate}(x) \cdot \sin(m\theta)
+\end{equation}
+
+\subsection{Implementation}
+
+\begin{lstlisting}[style=python, caption={RoPE from model.py}]
+class RotaryPositionalEmbedding(nn.Module):
+    def __init__(self, dim: int, max_seq_len: int = 2048, base: float = 10000.0):
+        super().__init__()
+        # Precompute frequency bands
+        inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim))
+        self.register_buffer("inv_freq", inv_freq)
+
+        # Precompute cos/sin for efficiency
+        self._update_cos_sin_cache(max_seq_len)
+
+    def forward(self, x: Tensor, seq_len: int) -> tuple[Tensor, Tensor]:
+        return (
+            self.cos_cached[:seq_len],
+            self.sin_cached[:seq_len],
+        )
+\end{lstlisting}
+
+\subsection{Applying RoPE to Q and K}
+
+\begin{lstlisting}[style=python]
+def apply_rotary_pos_emb(q, k, cos, sin):
+    # Rotate Q
+    q_embed = (q * cos) + (rotate_half(q) * sin)
+
+    # Rotate K
+    k_embed = (k * cos) + (rotate_half(k) * sin)
+
+    return q_embed, k_embed
+\end{lstlisting}
+
+\begin{keypoint}
+RoPE advantages:
+\begin{enumerate}
+    \item \textbf{Relative positions}: Attention naturally depends on relative, not absolute, positions
+    \item \textbf{Extrapolation}: Can handle longer sequences than seen during training
+    \item \textbf{Efficiency}: Precomputed and applied with simple operations
+\end{enumerate}
+\end{keypoint}
+
+% -----------------------------------------------------------------------------
+\section{Putting It All Together}
+% -----------------------------------------------------------------------------
+
+Here's the complete attention flow:
+
+\begin{enumerate}
+    \item \textbf{Project} input to Q, K, V
+    \item \textbf{Apply RoPE} to Q and K for position encoding
+    \item \textbf{Compute scores}: $QK^\top / \sqrt{d_k}$
+    \item \textbf{Apply causal mask}: block future positions
+    \item \textbf{Softmax}: convert to attention weights
+    \item \textbf{Apply attention mask}: zero out padding
+    \item \textbf{Weighted sum}: multiply weights by V
+    \item \textbf{Concatenate} heads and project output
+\end{enumerate}
+
+% -----------------------------------------------------------------------------
+\section{Exercises}
+% -----------------------------------------------------------------------------
+
+\begin{exercise}
+\textbf{Manual Attention Calculation}
+
+Given:
+\begin{lstlisting}[style=python, numbers=none]
+Q = [[1, 0], [0, 1]]  # 2x2
+K = [[1, 0], [0, 1]]  # 2x2
+V = [[1, 2], [3, 4]]  # 2x2
+\end{lstlisting}
+
+Compute by hand:
+\begin{enumerate}
+    \item Attention scores ($QK^\top$)
+    \item Scaled scores (divide by $\sqrt{2}$)
+    \item Softmax of each row
+    \item Final output (weights $\times$ V)
+\end{enumerate}
+\end{exercise}
+
+\begin{exercise}
+\textbf{Visualize Attention Patterns}
+
+After training a model, visualize attention weights:
+\begin{lstlisting}[style=python, numbers=none]
+# Hook into attention layer to capture weights
+# Plot as a heatmap
+import matplotlib.pyplot as plt
+plt.imshow(attention_weights[0, 0].detach().numpy())
+plt.xlabel("Key position")
+plt.ylabel("Query position")
+\end{lstlisting}
+
+What patterns do you observe? Do different heads attend differently?
+\end{exercise}
+
+% -----------------------------------------------------------------------------
+\section{Summary}
+% -----------------------------------------------------------------------------
+
+\begin{summary}
+    \item \textbf{Self-attention} allows each position to attend to all others
+    \item \textbf{Q, K, V} are projections of the input: query (what I seek), key (what I offer), value (my content)
+    \item \textbf{Scaled dot-product attention}: $\softmax(QK^\top / \sqrt{d_k}) \cdot V$
+    \item \textbf{Causal masking} prevents attending to future positions (critical for autoregressive models)
+    \item \textbf{Multi-head attention} runs multiple attention in parallel for richer representations
+    \item \textbf{RoPE} encodes positions through rotation, enabling relative position awareness
+\end{summary}
+
+Self-attention gives the model the ability to dynamically focus on relevant context. In the next chapter, we'll combine attention with feed-forward networks to form complete transformer blocks.

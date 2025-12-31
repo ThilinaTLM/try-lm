@@ -1,0 +1,546 @@
+% =============================================================================
+% Chapter 7: Transformer Blocks
+% =============================================================================
+\chapter{Transformer Blocks}
+\label{ch:transformer-blocks}
+
+\begin{objectives}
+    \item Understand the feed-forward network and SwiGLU activation
+    \item Learn about RMSNorm and why it's preferred over LayerNorm
+    \item Master the pre-normalization pattern
+    \item Understand residual connections and gradient flow
+    \item See how components combine into a complete transformer block
+\end{objectives}
+
+% -----------------------------------------------------------------------------
+\section{Anatomy of a Transformer Block}
+% -----------------------------------------------------------------------------
+
+A transformer block combines self-attention with a feed-forward network, connected by residual connections and normalization layers.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    box/.style={rectangle, draw, rounded corners, minimum width=3cm, minimum height=0.8cm, align=center},
+    norm/.style={box, fill=yellow!20},
+    attn/.style={box, fill=orange!20},
+    ffn/.style={box, fill=green!20},
+    add/.style={circle, draw, minimum size=0.6cm, fill=gray!10},
+    arrow/.style={-{Stealth[length=2mm]}, thick},
+]
+    % Input
+    \node[box, fill=blue!10] (input) at (0, 0) {Input $x$};
+
+    % First norm + attention
+    \node[norm] (norm1) at (0, -1.2) {RMSNorm};
+    \node[attn] (attn) at (0, -2.4) {Multi-Head\\Self-Attention};
+
+    % First residual add
+    \node[add] (add1) at (0, -3.6) {$+$};
+
+    % Second norm + FFN
+    \node[norm] (norm2) at (0, -4.8) {RMSNorm};
+    \node[ffn] (ffn) at (0, -6) {Feed-Forward\\(SwiGLU)};
+
+    % Second residual add
+    \node[add] (add2) at (0, -7.2) {$+$};
+
+    % Output
+    \node[box, fill=blue!10] (output) at (0, -8.4) {Output};
+
+    % Main flow
+    \draw[arrow] (input) -- (norm1);
+    \draw[arrow] (norm1) -- (attn);
+    \draw[arrow] (attn) -- (add1);
+    \draw[arrow] (add1) -- (norm2);
+    \draw[arrow] (norm2) -- (ffn);
+    \draw[arrow] (ffn) -- (add2);
+    \draw[arrow] (add2) -- (output);
+
+    % Residual connections
+    \draw[arrow, dashed, gray] (input.west) -- ++(-0.8, 0) -- ++(0, -3.6) -- (add1.west);
+    \draw[arrow, dashed, gray] (add1.west) -- ++(-0.8, 0) -- ++(0, -3.6) -- (add2.west);
+
+    % Labels
+    \node[right=0.5cm of add1, font=\footnotesize, gray] {Residual};
+    \node[right=0.5cm of add2, font=\footnotesize, gray] {Residual};
+\end{tikzpicture}
+\caption{A complete transformer block with pre-normalization}
+\label{fig:transformer-block}
+\end{figure}
+
+The block can be expressed as:
+\begin{align}
+x' &= x + \text{Attention}(\text{RMSNorm}(x)) \\
+\text{output} &= x' + \text{FFN}(\text{RMSNorm}(x'))
+\end{align}
+
+% -----------------------------------------------------------------------------
+\section{RMSNorm: Efficient Normalization}
+% -----------------------------------------------------------------------------
+
+\TryLM uses \textbf{RMSNorm} (Root Mean Square Normalization) instead of the original Transformer's LayerNorm.
+
+\subsection{LayerNorm vs RMSNorm}
+
+\textbf{LayerNorm} computes mean and variance:
+\begin{equation}
+\text{LayerNorm}(x) = \frac{x - \mu}{\sqrt{\sigma^2 + \epsilon}} \cdot \gamma + \beta
+\end{equation}
+
+\textbf{RMSNorm} only computes the RMS (root mean square):
+\begin{equation}
+\text{RMSNorm}(x) = \frac{x}{\sqrt{\frac{1}{d}\sum_{i=1}^{d} x_i^2 + \epsilon}} \cdot \gamma
+\end{equation}
+
+\subsection{Why RMSNorm?}
+
+\begin{enumerate}
+    \item \textbf{Simpler}: No mean computation, no bias parameter
+    \item \textbf{Faster}: Fewer operations per normalization
+    \item \textbf{Equally effective}: Empirically matches LayerNorm performance
+\end{enumerate}
+
+\subsection{Implementation}
+
+\begin{lstlisting}[style=python, caption={RMSNorm from model.py}]
+class RMSNorm(nn.Module):
+    def __init__(self, dim: int, eps: float = 1e-6) -> None:
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(dim))  # Learned scale
+
+    def forward(self, x: Tensor) -> Tensor:
+        # Compute RMS: sqrt(mean(x^2))
+        rms = torch.sqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
+
+        # Normalize and scale
+        return x / rms * self.weight
+\end{lstlisting}
+
+\begin{keypoint}
+RMSNorm has only \textbf{one learnable parameter} per dimension (the scale $\gamma$), while LayerNorm has two (scale and shift). For $d_{\text{model}} = 384$, each RMSNorm layer has 384 parameters.
+\end{keypoint}
+
+% -----------------------------------------------------------------------------
+\section{Feed-Forward Network with SwiGLU}
+% -----------------------------------------------------------------------------
+
+The feed-forward network (FFN) is the ``processing'' layer that follows attention. \TryLM uses \textbf{SwiGLU}, a gated activation function.
+
+\subsection{Standard FFN}
+
+The original Transformer FFN:
+\begin{equation}
+\text{FFN}(x) = \text{GELU}(xW_1 + b_1)W_2 + b_2
+\end{equation}
+
+\subsection{SwiGLU: Gated Linear Unit with Swish}
+
+SwiGLU uses a gating mechanism:
+\begin{equation}
+\text{SwiGLU}(x) = \text{Swish}(xW_{\text{gate}}) \odot (xW_{\text{up}})
+\end{equation}
+
+where $\odot$ is element-wise multiplication and Swish (also called SiLU) is:
+\begin{equation}
+\text{Swish}(x) = x \cdot \sigma(x) = \frac{x}{1 + e^{-x}}
+\end{equation}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    box/.style={rectangle, draw, rounded corners, minimum width=1.8cm, minimum height=0.6cm, fill=blue!10, align=center},
+    proj/.style={rectangle, draw, minimum width=1.2cm, minimum height=0.6cm},
+    op/.style={circle, draw, minimum size=0.5cm, fill=gray!10},
+    arrow/.style={-{Stealth[length=2mm]}, thick},
+]
+    % Input
+    \node[box, minimum width=2.5cm] (input) at (0, 0) {Input $x$\\\shape{B, S, 384}};
+
+    % Gate and Up projections
+    \node[proj, fill=red!20] (gate) at (-1.5, -1.5) {$W_{\text{gate}}$};
+    \node[proj, fill=green!20] (up) at (1.5, -1.5) {$W_{\text{up}}$};
+
+    % Swish activation
+    \node[box, fill=orange!20] (swish) at (-1.5, -3) {Swish};
+
+    % Element-wise multiply
+    \node[op] (mul) at (0, -4.5) {$\odot$};
+
+    % Down projection
+    \node[proj, fill=purple!20] (down) at (0, -6) {$W_{\text{down}}$};
+
+    % Output
+    \node[box, minimum width=2.5cm] (output) at (0, -7.5) {Output\\\shape{B, S, 384}};
+
+    % Arrows
+    \draw[arrow] (input) -- (-1.5, -0.5) -- (gate);
+    \draw[arrow] (input) -- (1.5, -0.5) -- (up);
+    \draw[arrow] (gate) -- (swish);
+    \draw[arrow] (swish) -- (mul);
+    \draw[arrow] (up) -- (1.5, -4.5) -- (mul);
+    \draw[arrow] (mul) -- (down);
+    \draw[arrow] (down) -- (output);
+
+    % Dimension annotations
+    \node[font=\footnotesize, gray, right=0.2cm of gate] {\shape{384, 1024}};
+    \node[font=\footnotesize, gray, right=0.2cm of up] {\shape{384, 1024}};
+    \node[font=\footnotesize, gray, right=0.2cm of down] {\shape{1024, 384}};
+\end{tikzpicture}
+\caption{SwiGLU feed-forward network architecture}
+\label{fig:swiglu}
+\end{figure}
+
+\subsection{Why SwiGLU?}
+
+The gating mechanism allows the network to \textbf{selectively pass information}:
+\begin{itemize}
+    \item The ``gate'' path learns \textit{what} to let through
+    \item The ``up'' path provides \textit{what} to pass
+    \item Their product gives controlled information flow
+\end{itemize}
+
+Empirically, SwiGLU outperforms GELU/ReLU on language modeling benchmarks.
+
+\subsection{Hidden Dimension}
+
+For SwiGLU, we use $\frac{2}{3}$ of the standard hidden dimension to maintain similar parameter count:
+
+\begin{lstlisting}[style=python, caption={FFN with SwiGLU from model.py}]
+class FeedForward(nn.Module):
+    def __init__(self, config: ModelConfig):
+        super().__init__()
+
+        # SwiGLU uses 2/3 of the standard hidden dim
+        hidden_dim = int(2 * config.d_ff / 3)
+
+        # Round to nearest multiple of 256 for efficiency
+        hidden_dim = 256 * ((hidden_dim + 255) // 256)
+
+        self.gate_proj = nn.Linear(config.d_model, hidden_dim, bias=False)
+        self.up_proj = nn.Linear(config.d_model, hidden_dim, bias=False)
+        self.down_proj = nn.Linear(hidden_dim, config.d_model, bias=False)
+        self.dropout = nn.Dropout(config.dropout)
+
+    def forward(self, x: Tensor) -> Tensor:
+        # SwiGLU: swish(gate) * up
+        gate = F.silu(self.gate_proj(x))  # Swish = SiLU
+        up = self.up_proj(x)
+        hidden = gate * up
+        hidden = self.dropout(hidden)
+        return self.down_proj(hidden)
+\end{lstlisting}
+
+\begin{keypoint}
+For \TryLM with $d_{\text{model}} = 384$ and $d_{\text{ff}} = 1536$:
+\begin{align*}
+\text{hidden\_dim} &= \frac{2}{3} \times 1536 = 1024
+\end{align*}
+After rounding to 256: hidden\_dim = 1024 (unchanged in this case).
+\end{keypoint}
+
+% -----------------------------------------------------------------------------
+\section{Pre-Normalization}
+% -----------------------------------------------------------------------------
+
+\TryLM uses \textbf{pre-normalization} (Pre-LN): normalize \textit{before} the sublayer, not after.
+
+\subsection{Post-Norm vs Pre-Norm}
+
+\textbf{Post-normalization} (original Transformer):
+\begin{equation}
+x' = \text{Norm}(x + \text{Sublayer}(x))
+\end{equation}
+
+\textbf{Pre-normalization} (\TryLM):
+\begin{equation}
+x' = x + \text{Sublayer}(\text{Norm}(x))
+\end{equation}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    box/.style={rectangle, draw, rounded corners, minimum width=2cm, minimum height=0.6cm},
+    arrow/.style={-{Stealth[length=2mm]}, thick},
+]
+    % Post-norm
+    \node at (-3, 2) {\textbf{Post-Norm:}};
+    \node[box, fill=blue!10] (x1) at (-3, 1) {$x$};
+    \node[box, fill=orange!20] (sub1) at (-3, -0.3) {Sublayer};
+    \node[circle, draw, fill=gray!10] (add1) at (-3, -1.6) {$+$};
+    \node[box, fill=yellow!20] (norm1) at (-3, -2.9) {Norm};
+
+    \draw[arrow] (x1) -- (sub1);
+    \draw[arrow] (sub1) -- (add1);
+    \draw[arrow] (add1) -- (norm1);
+    \draw[arrow, dashed, gray] (x1.west) -- ++(-0.5, 0) |- (add1.west);
+
+    % Pre-norm
+    \node at (3, 2) {\textbf{Pre-Norm:}};
+    \node[box, fill=blue!10] (x2) at (3, 1) {$x$};
+    \node[box, fill=yellow!20] (norm2) at (3, -0.3) {Norm};
+    \node[box, fill=orange!20] (sub2) at (3, -1.6) {Sublayer};
+    \node[circle, draw, fill=gray!10] (add2) at (3, -2.9) {$+$};
+
+    \draw[arrow] (x2) -- (norm2);
+    \draw[arrow] (norm2) -- (sub2);
+    \draw[arrow] (sub2) -- (add2);
+    \draw[arrow, dashed, gray] (x2.east) -- ++(0.5, 0) |- (add2.east);
+\end{tikzpicture}
+\caption{Post-normalization (left) vs Pre-normalization (right)}
+\label{fig:pre-vs-post-norm}
+\end{figure}
+
+\subsection{Why Pre-Norm?}
+
+\begin{enumerate}
+    \item \textbf{Stable gradients}: The residual connection provides a direct gradient path without normalization in the way
+    \item \textbf{Easier training}: Works with larger learning rates and simpler hyperparameter tuning
+    \item \textbf{No warmup required}: Post-norm often needs learning rate warmup; pre-norm is more forgiving
+\end{enumerate}
+
+\subsection{Implementation}
+
+\begin{lstlisting}[style=python, caption={TransformerBlock with pre-norm from model.py}]
+class TransformerBlock(nn.Module):
+    def __init__(self, config: ModelConfig):
+        super().__init__()
+        self.attn_norm = RMSNorm(config.d_model)
+        self.ffn_norm = RMSNorm(config.d_model)
+        self.attention = MultiHeadSelfAttention(config)
+        self.ffn = FeedForward(config)
+
+    def forward(self, x: Tensor, attention_mask: Tensor | None = None) -> Tensor:
+        # Pre-norm attention with residual
+        x = x + self.attention(self.attn_norm(x), attention_mask)
+
+        # Pre-norm FFN with residual
+        x = x + self.ffn(self.ffn_norm(x))
+
+        return x
+\end{lstlisting}
+
+% -----------------------------------------------------------------------------
+\section{Residual Connections}
+% -----------------------------------------------------------------------------
+
+\textbf{Residual connections} (skip connections) add the input directly to the output:
+\begin{equation}
+\text{output} = x + f(x)
+\end{equation}
+
+\subsection{Why Residual Connections?}
+
+\begin{enumerate}
+    \item \textbf{Gradient flow}: Gradients can flow directly through the addition, avoiding vanishing gradient problems
+    \item \textbf{Identity as baseline}: The layer can learn to add corrections rather than complete transformations
+    \item \textbf{Deep networks}: Enable training very deep networks (GPT-3 has 96 layers!)
+\end{enumerate}
+
+\subsection{Gradient Flow Visualization}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    box/.style={rectangle, draw, minimum width=2cm, minimum height=0.8cm},
+    arrow/.style={-{Stealth[length=2mm]}, thick},
+    grad/.style={-{Stealth[length=2mm]}, thick, red!70!black},
+]
+    % Without residual
+    \node at (-3, 2) {\textbf{Without Residual:}};
+    \node[box, fill=blue!10] (a1) at (-3, 0.8) {Layer 3};
+    \node[box, fill=blue!10] (a2) at (-3, -0.6) {Layer 2};
+    \node[box, fill=blue!10] (a3) at (-3, -2) {Layer 1};
+
+    \draw[arrow] (a1) -- (a2);
+    \draw[arrow] (a2) -- (a3);
+
+    % Gradient
+    \draw[grad] (-4, -2) -- (-4, 0.8);
+    \node[font=\footnotesize, red!70!black, left] at (-4, -0.6) {Gradient};
+    \node[font=\footnotesize, red!70!black, left] at (-4, 1.2) {may vanish};
+
+    % With residual
+    \node at (3, 2) {\textbf{With Residual:}};
+    \node[box, fill=blue!10] (b1) at (3, 0.8) {Layer 3};
+    \node[box, fill=blue!10] (b2) at (3, -0.6) {Layer 2};
+    \node[box, fill=blue!10] (b3) at (3, -2) {Layer 1};
+
+    \draw[arrow] (b1) -- (b2);
+    \draw[arrow] (b2) -- (b3);
+
+    % Skip connections
+    \draw[arrow, dashed, gray] (3.8, 0.4) -- ++(0.5, 0) -- ++(0, -2.4) -- ++(-0.5, 0);
+
+    % Gradient (direct path)
+    \draw[grad, thick] (4.8, -2) -- (4.8, 0.8);
+    \node[font=\footnotesize, red!70!black, right] at (4.8, -0.6) {Direct};
+    \node[font=\footnotesize, red!70!black, right] at (4.8, 1.2) {gradient path};
+\end{tikzpicture}
+\caption{Residual connections enable direct gradient flow through deep networks}
+\label{fig:residual-gradient}
+\end{figure}
+
+\begin{keypoint}
+Without residual connections, gradients must pass through every layer. With residuals, gradients have a ``highway'' directly back to earlier layers, enabling much deeper networks.
+\end{keypoint}
+
+% -----------------------------------------------------------------------------
+\section{Dropout in Transformer Blocks}
+% -----------------------------------------------------------------------------
+
+Dropout is applied in three places within a transformer block:
+
+\begin{enumerate}
+    \item \textbf{After attention weights}: Randomly drops attention connections
+    \item \textbf{After FFN hidden layer}: Regularizes the feed-forward network
+    \item \textbf{After attention output projection}: Before residual addition
+\end{enumerate}
+
+\begin{lstlisting}[style=python]
+# In attention:
+attn_weights = self.attn_dropout(attn_weights)  # After softmax
+
+# In FFN:
+hidden = self.dropout(hidden)  # After SwiGLU, before down_proj
+\end{lstlisting}
+
+\TryLM uses \texttt{dropout=0.1} by default.
+
+% -----------------------------------------------------------------------------
+\section{The Complete Transformer Block}
+% -----------------------------------------------------------------------------
+
+Let's trace data through a complete block:
+
+\begin{lstlisting}[style=python]
+# Input: [batch=2, seq_len=128, d_model=384]
+x = ...
+
+# TransformerBlock forward pass:
+
+# 1. Pre-norm for attention
+normed = self.attn_norm(x)  # [2, 128, 384]
+
+# 2. Multi-head self-attention
+attn_out = self.attention(normed, attention_mask)  # [2, 128, 384]
+
+# 3. Residual connection
+x = x + attn_out  # [2, 128, 384]
+
+# 4. Pre-norm for FFN
+normed = self.ffn_norm(x)  # [2, 128, 384]
+
+# 5. Feed-forward with SwiGLU
+ffn_out = self.ffn(normed)  # [2, 128, 384]
+
+# 6. Residual connection
+x = x + ffn_out  # [2, 128, 384]
+
+# Output: [2, 128, 384] (same shape as input!)
+\end{lstlisting}
+
+\begin{keypoint}
+Each transformer block preserves the input shape: \texttt{[batch, seq\_len, d\_model]}. This enables stacking arbitrary numbers of blocks.
+\end{keypoint}
+
+% -----------------------------------------------------------------------------
+\section{Stacking Blocks}
+% -----------------------------------------------------------------------------
+
+A complete transformer stacks multiple blocks:
+
+\begin{lstlisting}[style=python, caption={Stacking transformer blocks from model.py}]
+class GPT(nn.Module):
+    def __init__(self, config: ModelConfig) -> None:
+        super().__init__()
+        # ...
+
+        # Stack of transformer blocks
+        self.blocks = nn.ModuleList([
+            TransformerBlock(config)
+            for _ in range(config.n_layers)  # 6 blocks
+        ])
+
+    def forward(self, x: Tensor, ...) -> Tensor:
+        x = self.token_embedding(input_ids)
+        x = self.dropout(x)
+
+        # Pass through all blocks
+        for block in self.blocks:
+            x = block(x, attention_mask)
+
+        x = self.final_norm(x)
+        # ...
+\end{lstlisting}
+
+For \TryLM with 6 layers:
+\begin{itemize}
+    \item Each block has $\sim$1.7M parameters
+    \item 6 blocks $\times$ 1.7M = $\sim$10.2M parameters
+    \item Plus embeddings ($\sim$6.3M) = $\sim$10.8M total
+\end{itemize}
+
+% -----------------------------------------------------------------------------
+\section{Exercises}
+% -----------------------------------------------------------------------------
+
+\begin{exercise}
+\textbf{Calculate RMSNorm}
+
+Given vector $x = [2, 4, 6]$:
+\begin{enumerate}
+    \item Compute the mean square: $\frac{1}{3}(2^2 + 4^2 + 6^2)$
+    \item Compute the RMS: $\sqrt{\text{mean square}}$
+    \item Normalize: $x / \text{RMS}$
+\end{enumerate}
+\end{exercise}
+
+\begin{exercise}
+\textbf{Compare Activations}
+
+Implement and compare different activations:
+\begin{lstlisting}[style=python, numbers=none]
+import torch
+import torch.nn.functional as F
+import matplotlib.pyplot as plt
+
+x = torch.linspace(-3, 3, 100)
+
+plt.plot(x, F.relu(x), label='ReLU')
+plt.plot(x, F.gelu(x), label='GELU')
+plt.plot(x, F.silu(x), label='Swish/SiLU')
+plt.legend()
+\end{lstlisting}
+
+How do they differ around $x = 0$?
+\end{exercise}
+
+\begin{exercise}
+\textbf{Count Block Parameters}
+
+For a single transformer block with $d_{\text{model}} = 384$, $d_{\text{ff}} = 1536$, and 6 attention heads, count:
+\begin{enumerate}
+    \item Parameters in QKV projection
+    \item Parameters in output projection
+    \item Parameters in FFN (gate, up, down)
+    \item Parameters in both RMSNorm layers
+    \item Total parameters per block
+\end{enumerate}
+\end{exercise}
+
+% -----------------------------------------------------------------------------
+\section{Summary}
+% -----------------------------------------------------------------------------
+
+\begin{summary}
+    \item A \textbf{transformer block} = attention + FFN + residuals + norms
+    \item \textbf{RMSNorm} is simpler and faster than LayerNorm, with comparable performance
+    \item \textbf{SwiGLU} uses gating: $\text{Swish}(\text{gate}) \odot \text{up}$, better than GELU
+    \item \textbf{Pre-normalization} normalizes before sublayers, enabling stable training
+    \item \textbf{Residual connections} enable gradient flow and very deep networks
+    \item Blocks preserve shape: $[B, S, D] \to [B, S, D]$, allowing arbitrary stacking
+\end{summary}
+
+Now we have all the components of a transformer block. In the next chapter, we'll assemble the complete GPT model by combining embeddings, stacked blocks, and the output projection.

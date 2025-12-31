@@ -1,0 +1,202 @@
+% =============================================================================
+% Building Language Models from Scratch: A Hands-On Journey with TryLM
+% =============================================================================
+\documentclass[11pt,a4paper,openany]{book}
+
+% Load preamble with all packages and configurations
+\input{preamble}
+
+% -----------------------------------------------------------------------------
+% Document Metadata
+% -----------------------------------------------------------------------------
+\title{
+    \textbf{Building Language Models from Scratch} \\[0.5em]
+    \Large A Hands-On Journey with TryLM
+}
+\author{TryLM Tutorial}
+\date{\today}
+
+% =============================================================================
+\begin{document}
+% =============================================================================
+
+% -----------------------------------------------------------------------------
+% Front Matter
+% -----------------------------------------------------------------------------
+\frontmatter
+
+% Title Page
+\maketitle
+
+% Copyright / License page
+\thispagestyle{empty}
+\vspace*{\fill}
+\begin{center}
+    \textit{This tutorial accompanies the TryLM project.}\\[1em]
+    \texttt{https://github.com/your-repo/trylm}
+\end{center}
+\vspace*{\fill}
+\newpage
+
+% Table of Contents
+\tableofcontents
+
+% Preface
+\chapter*{Preface}
+\addcontentsline{toc}{chapter}{Preface}
+
+Welcome to \textbf{Building Language Models from Scratch}! This book will guide you through the complete process of understanding and implementing a GPT-style language model using the \TryLM project.
+
+\section*{Who This Book Is For}
+
+This book is designed for developers and practitioners who:
+\begin{itemize}
+    \item Have a solid foundation in Python programming
+    \item Understand basic neural network concepts (layers, backpropagation, loss functions)
+    \item Want to deeply understand how modern language models like GPT work
+    \item Prefer learning by building rather than just reading theory
+\end{itemize}
+
+\section*{What You Will Learn}
+
+By the end of this book, you will be able to:
+\begin{itemize}
+    \item Explain how transformer-based language models work at every level
+    \item Implement attention mechanisms, positional encodings, and feed-forward networks
+    \item Train a language model from scratch on real data
+    \item Generate coherent text using various sampling strategies
+    \item Debug common training issues and optimize model performance
+\end{itemize}
+
+\section*{How This Book Is Organized}
+
+The book is divided into five parts:
+
+\begin{description}
+    \item[Part I: Foundations] introduces language models conceptually, sets up your environment, and covers tokenization and data preparation.
+
+    \item[Part II: Model Architecture] dives deep into the transformer architecture, covering embeddings, attention, and the complete GPT model.
+
+    \item[Part III: Training] covers the training loop, optimization techniques, monitoring, and evaluation.
+
+    \item[Part IV: Generation and Beyond] teaches you how to generate text and put everything together in an end-to-end workflow.
+
+    \item[Part V: Advanced Topics] explores the reasoning behind design choices and discusses scaling laws.
+\end{description}
+
+\section*{Conventions Used in This Book}
+
+\begin{itemize}
+    \item \texttt{Monospace text} indicates code, file names, or commands.
+    \item \textbf{Bold text} highlights important terms.
+    \item \textit{Italic text} is used for emphasis.
+\end{itemize}
+
+Special boxes are used throughout:
+
+\begin{keypoint}
+Highlights fundamental concepts you should understand deeply.
+\end{keypoint}
+
+\begin{pitfall}
+Warns about common mistakes and how to avoid them.
+\end{pitfall}
+
+\begin{exercise}
+Provides hands-on practice to reinforce your learning.
+\end{exercise}
+
+\section*{The TryLM Project}
+
+\TryLM is a small ($\sim$10--17 million parameter) GPT-style language model built from scratch in \PyTorch. It trains on the TinyStories dataset and incorporates modern LLM techniques:
+
+\begin{itemize}
+    \item \textbf{RMSNorm} for efficient normalization
+    \item \textbf{Rotary Position Embeddings (RoPE)} for position encoding
+    \item \textbf{SwiGLU activation} in feed-forward layers
+    \item \textbf{Pre-normalization} for stable training
+    \item \textbf{Weight tying} between embeddings and output projection
+\end{itemize}
+
+Despite its small size, \TryLM uses the same architectural patterns as state-of-the-art models like LLaMA and Mistral.
+
+\section*{Let's Begin!}
+
+The best way to learn is by doing. Each chapter includes exercises, and I encourage you to run the code, experiment with parameters, and break things---that's how real understanding develops.
+
+Let's build a language model from scratch!
+
+% -----------------------------------------------------------------------------
+% Main Matter
+% -----------------------------------------------------------------------------
+\mainmatter
+
+% ============================================================================
+% PART I: FOUNDATIONS
+% ============================================================================
+\part{Foundations}
+
+\input{chapters/01-what-are-language-models}
+\input{chapters/02-environment-setup}
+\input{chapters/03-tokenization}
+\input{chapters/04-preparing-training-data}
+
+% ============================================================================
+% PART II: MODEL ARCHITECTURE
+% ============================================================================
+\part{Model Architecture}
+
+\input{chapters/05-token-embeddings}
+\input{chapters/06-self-attention}
+\input{chapters/07-transformer-blocks}
+\input{chapters/08-complete-gpt-model}
+
+% ============================================================================
+% PART III: TRAINING
+% ============================================================================
+\part{Training}
+
+\input{chapters/09-training-loop}
+\input{chapters/10-monitoring-checkpointing}
+\input{chapters/11-evaluation}
+
+% ============================================================================
+% PART IV: GENERATION AND BEYOND
+% ============================================================================
+\part{Generation and Beyond}
+
+\input{chapters/12-text-generation}
+\input{chapters/13-end-to-end-workflow}
+
+% ============================================================================
+% PART V: ADVANCED TOPICS
+% ============================================================================
+\part{Advanced Topics}
+
+\input{chapters/14-design-choices}
+\input{chapters/15-scaling-efficiency}
+
+% -----------------------------------------------------------------------------
+% Appendices
+% -----------------------------------------------------------------------------
+\appendix
+
+\input{appendices/a-architecture-variations}
+\input{appendices/b-advanced-generation}
+\input{appendices/c-debugging}
+\input{appendices/d-glossary}
+
+% -----------------------------------------------------------------------------
+% Back Matter
+% -----------------------------------------------------------------------------
+\backmatter
+
+% Bibliography (if using)
+% \printbibliography[heading=bibintoc]
+
+% Index (if using)
+% \printindex
+
+% =============================================================================
+\end{document}
+% =============================================================================

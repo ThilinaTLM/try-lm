@@ -1,0 +1,173 @@
+% =============================================================================
+% Chapter 14: Design Choices Explained
+% =============================================================================
+\chapter{Design Choices Explained}
+\label{ch:design-choices}
+
+\begin{objectives}
+    \item Understand why TryLM uses RMSNorm over LayerNorm
+    \item Learn why RoPE is preferred over learned positions
+    \item Grasp why SwiGLU outperforms GELU
+    \item Know why pre-normalization aids training
+    \item Appreciate weight tying benefits
+\end{objectives}
+
+% -----------------------------------------------------------------------------
+\section{Overview}
+% -----------------------------------------------------------------------------
+
+\TryLM incorporates several modern architectural choices that differ from the original Transformer. Each choice has specific advantages.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Component} & \textbf{Original} & \textbf{TryLM} \\
+\midrule
+Normalization & LayerNorm & RMSNorm \\
+Position encoding & Learned embeddings & RoPE \\
+FFN activation & ReLU/GELU & SwiGLU \\
+Norm placement & Post-norm & Pre-norm \\
+Output projection & Separate weights & Weight tying \\
+Linear bias & Yes & No \\
+\bottomrule
+\end{tabular}
+\caption{Architectural differences from original Transformer}
+\end{table}
+
+% -----------------------------------------------------------------------------
+\section{RMSNorm vs LayerNorm}
+% -----------------------------------------------------------------------------
+
+\subsection{The Difference}
+
+\textbf{LayerNorm}:
+\begin{equation}
+\text{LN}(x) = \frac{x - \mu}{\sqrt{\sigma^2 + \epsilon}} \cdot \gamma + \beta
+\end{equation}
+
+\textbf{RMSNorm}:
+\begin{equation}
+\text{RMSNorm}(x) = \frac{x}{\sqrt{\frac{1}{d}\sum x_i^2 + \epsilon}} \cdot \gamma
+\end{equation}
+
+\subsection{Why RMSNorm?}
+
+\begin{enumerate}
+    \item \textbf{Fewer operations}: No mean computation or bias term
+    \item \textbf{Empirically equivalent}: No quality loss in practice
+    \item \textbf{Used by}: LLaMA, Mistral, and other modern LLMs
+\end{enumerate}
+
+\textit{Reference: Zhang \& Sennrich, ``Root Mean Square Layer Normalization'' (2019)}
+
+% -----------------------------------------------------------------------------
+\section{RoPE vs Learned Positions}
+% -----------------------------------------------------------------------------
+
+\subsection{The Difference}
+
+\textbf{Learned positions}: Add fixed position embeddings to token embeddings.
+
+\textbf{RoPE}: Rotate Q and K vectors based on position.
+
+\subsection{Why RoPE?}
+
+\begin{enumerate}
+    \item \textbf{Relative positions}: Attention naturally depends on $(m - n)$, not $m$ and $n$ separately
+    \item \textbf{Extrapolation}: Can handle longer sequences than training
+    \item \textbf{Efficiency}: Computed with simple sin/cos, no extra parameters
+    \item \textbf{Used by}: LLaMA, Mistral, GPT-NeoX
+\end{enumerate}
+
+\textit{Reference: Su et al., ``RoFormer: Enhanced Transformer with Rotary Position Embedding'' (2021)}
+
+% -----------------------------------------------------------------------------
+\section{SwiGLU vs GELU}
+% -----------------------------------------------------------------------------
+
+\subsection{The Difference}
+
+\textbf{GELU}: $\text{GELU}(x) = x \cdot \Phi(x)$ where $\Phi$ is the Gaussian CDF.
+
+\textbf{SwiGLU}: $\text{SwiGLU}(x) = \text{Swish}(xW_g) \odot (xW_u)$
+
+\subsection{Why SwiGLU?}
+
+\begin{enumerate}
+    \item \textbf{Gating}: Learned control over information flow
+    \item \textbf{Empirical gains}: Consistently outperforms GELU in language modeling
+    \item \textbf{Efficiency}: Despite 3 projections vs 2, parameter count is similar (using 2/3 hidden dim)
+    \item \textbf{Used by}: LLaMA, PaLM, Mistral
+\end{enumerate}
+
+\textit{Reference: Shazeer, ``GLU Variants Improve Transformer'' (2020)}
+
+% -----------------------------------------------------------------------------
+\section{Pre-Norm vs Post-Norm}
+% -----------------------------------------------------------------------------
+
+\subsection{The Difference}
+
+\textbf{Post-norm}: $x' = \text{Norm}(x + \text{Sublayer}(x))$
+
+\textbf{Pre-norm}: $x' = x + \text{Sublayer}(\text{Norm}(x))$
+
+\subsection{Why Pre-Norm?}
+
+\begin{enumerate}
+    \item \textbf{Gradient flow}: Residual path is unobstructed
+    \item \textbf{Training stability}: Works with higher learning rates
+    \item \textbf{No warmup required}: Post-norm often needs careful warmup
+    \item \textbf{Used by}: GPT-2/3, LLaMA, most modern LLMs
+\end{enumerate}
+
+\textit{Reference: Xiong et al., ``On Layer Normalization in the Transformer Architecture'' (2020)}
+
+% -----------------------------------------------------------------------------
+\section{Weight Tying}
+% -----------------------------------------------------------------------------
+
+\subsection{The Technique}
+
+Share weights between input embedding and output projection:
+\begin{lstlisting}[style=python]
+self.lm_head.weight = self.token_embedding.weight
+\end{lstlisting}
+
+\subsection{Why Tie Weights?}
+
+\begin{enumerate}
+    \item \textbf{Fewer parameters}: Save $V \times d$ parameters
+    \item \textbf{Semantic consistency}: Input and output share representations
+    \item \textbf{Regularization}: Constrains the model beneficially
+    \item \textbf{Used by}: GPT-2, BERT, most language models
+\end{enumerate}
+
+% -----------------------------------------------------------------------------
+\section{No Bias Terms}
+% -----------------------------------------------------------------------------
+
+\TryLM uses \texttt{bias=False} in linear layers.
+
+\subsection{Why No Bias?}
+
+\begin{enumerate}
+    \item \textbf{Fewer parameters}: Small but cumulative savings
+    \item \textbf{Simplicity}: Easier to analyze
+    \item \textbf{RMSNorm compatibility}: Bias less necessary with normalization
+    \item \textbf{Empirical}: No quality loss observed
+\end{enumerate}
+
+% -----------------------------------------------------------------------------
+\section{Summary}
+% -----------------------------------------------------------------------------
+
+\begin{summary}
+    \item \textbf{RMSNorm}: Simpler than LayerNorm, equally effective
+    \item \textbf{RoPE}: Encodes relative positions, enables extrapolation
+    \item \textbf{SwiGLU}: Gated activation outperforms GELU
+    \item \textbf{Pre-norm}: Better gradient flow, more stable training
+    \item \textbf{Weight tying}: Shares input/output embeddings, saves parameters
+    \item These choices follow modern best practices from LLaMA/Mistral
+\end{summary}
